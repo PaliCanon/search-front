@@ -55,7 +55,7 @@ plugs in later. No AI, no infra.
 
 ```mermaid
 flowchart LR
-  Define:::done --> Plan:::done --> Build:::done --> Review:::done --> Fix1:::done --> Verify["Verify ✓ 259 tests, clippy, doc"]:::done --> Merge["Merge ✓ e928bea"]:::done --> Retro:::todo
+  Define:::done --> Plan:::done --> Build:::done --> Review:::done --> Fix1:::done --> Verify["Verify ✓ 259 tests, clippy, doc"]:::done --> Merge["Merge ✓ e928bea"]:::done --> Retro["Retro ✓ docs 601532b"]:::done
   classDef done fill:#2e7d32,color:#fff
   classDef todo fill:#9e9e9e,color:#fff
 ```
@@ -106,3 +106,6 @@ fixed now:
 
 ## Merge
 search-front `e928bea`.
+
+## Retro
+Retro of 001 and 005 together: message #5162, deep #5163. Lessons (docs 601532b): a lane wrote outside its files (absolute paths in the brief, a diff-scope check, pre-existing failures reproduced on the base); the check met a cold engine (warm it before the user looks). Already taken the same week: rulings as case tables, probes of the check's backends (047). Not taken: a merge gate comparing the workflow diagram with the Log (the hook already reads the workflow nodes; the stale nodes were caught by it). What worked: the user check caught the API's collection-filter bug (api 004); the orchestrator caught the stray task file and the false pre-existing claim before the close.
