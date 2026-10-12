@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "../../../ui-lib/style/theme.css";
+
+/* Tailwind generates the classes it finds in the Rust sources. */
+@source "../../../ui-lib/src";
+@source "../src";
+
+/* A search match inside a snippet (today's site): a tinted band and a gold underline. */
+mark {
+  @apply rounded-[2px] bg-mark text-inherit;
+  box-shadow: 0 1.5px 0 var(--ps-gold);
+}

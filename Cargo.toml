@@ -1,0 +1,59 @@
+[workspace]
+resolver = "3"
+members = ["app"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "CC-BY-NC-4.0"
+repository = "https://github.com/PaliCanon/search-front"
+
+[workspace.dependencies]
+leptos = "0.8"
+leptos_meta = "0.8"
+leptos_router = "0.8"
+leptos_axum = "0.8"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+# Every public item is documented; CI denies warnings, so this is enforced.
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+needless_pass_by_value = "allow" # Leptos components take their props by value
+
+# The service: `cargo leptos watch` serves it on http://127.0.0.1:3101 (the
+# task's own port; see README.md).
+[[workspace.metadata.leptos]]
+name = "search-front"
+bin-package = "search_front"
+lib-package = "search_front"
+site-root = "target/site"
+site-pkg-dir = "pkg"
+tailwind-input-file = "app/style/main.css"
+assets-dir = "app/public"
+site-addr = "127.0.0.1:3101"
+reload-port = 4101
+bin-features = ["ssr"]
+lib-features = ["hydrate"]
+lib-profile-release = "wasm-release"
+
+# Built from ../ui-lib (a worktree reaches it through the wt/ui-lib
+# symlink), not from GitHub: a change to both repositories is seen at once.
+[patch."ssh://git@github.com/PaliCanon/ui-lib.git"]
+palicanon-ui-lib = { path = "../ui-lib" }
+
+# Built from ../api (a worktree reaches it through the wt/api symlink) until
+# the client is published; the git dependency is only the address.
+[patch."ssh://git@github.com/PaliCanon/api.git"]
+palicanon-api-client = { path = "../api/crates/api-client" }
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
