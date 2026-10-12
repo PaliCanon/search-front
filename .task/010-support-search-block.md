@@ -1,6 +1,6 @@
 # 010 Support: the Search block, and both blocks in a carousel
 
-status: merge · rank: 3 · level: standard · type: feature · request: user, 2026-10-11/12 ("j'aimerais que la page support ajoute le search"; "le bloc mais avec un carrousel"; "les deux en carrousel") · session: search-front-010-support-search-block (design de3af26947dca42, review d23f5cd3416d541, discussion da7fc9b47657542, process db519f6b843e44e) · process: ../../docs/workflows/development-process.mmd · after: [ui-lab 062]
+status: merged · rank: 3 · level: standard · type: feature · request: user, 2026-10-11/12 ("j'aimerais que la page support ajoute le search"; "le bloc mais avec un carrousel"; "les deux en carrousel") · session: search-front-010-support-search-block (design de3af26947dca42, review d23f5cd3416d541, discussion da7fc9b47657542, process db519f6b843e44e) · process: ../../docs/workflows/development-process.mmd · after: [ui-lab 062]
 
 ## Summary
 Rank: difficulty 3 (a new block on the Support page with strings in three languages, both blocks moved onto ui-lib's new `Carousel`, five screenshots added), impact 2 (one footer page) → 3.
@@ -28,3 +28,6 @@ The Support page (`app/src/pages/view.rs` `app_block`, today a strip `flex gap-3
 | Review round 2 | clean | review entry v3; gemini #5500, sage #5502: Δ none, round-1 ruling answered. Ruled out: gemini T (each alt non-empty): the alts are constants in three content files, the three-language test reads the en ones, an empty one is caught reading the content diff; not worth a round. |
 | User check | accepted | user, 2026-10-12: "le carrousel a l air bien comme ça", on :3101/support at code 082529c (ui-lib 345e2b2); the commits since are tests only (5447bf8) and ui-lib 345e2b2 merged as 850b15d with the same code. |
 | Merge | done | 2dab5e1 on main (squash), not pushed; needs ui-lib main 850b15d pushed first; branch and worktree deleted. |
+
+## Retro
+retro-discussion da3ca82e2f02940: retro #5511, gemini #5518. Lessons (docs 07a3926): a rank-3 task ran without its session; a component replaced a strip without its sizes. Flaky boot test opened as 012. Validated 2026-10-12.
