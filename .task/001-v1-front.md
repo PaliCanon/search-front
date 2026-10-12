@@ -1,6 +1,6 @@
 # 001 v1 front, search mocked
 
-status: user check · rank: 5 · level: standard · type: feature · request: search-front v1 · session: search-front-001-v1 · process: ../../docs/workflows/development-process.mmd (frozen v20)
+status: merged · rank: 5 · level: standard · type: feature · request: search-front v1 · session: search-front-001-v1 · process: ../../docs/workflows/development-process.mmd (frozen v20)
 
 ## Summary
 Rank (rank.md): difficulty 5 (new repo, SSR app on ui-lib, a page with
@@ -55,7 +55,7 @@ plugs in later. No AI, no infra.
 
 ```mermaid
 flowchart LR
-  Define:::done --> Plan:::done --> Build:::done --> Review:::done --> Fix1:::done --> Verify["Verify ✓ 259 tests, clippy, doc"]:::done --> Merge:::doing
+  Define:::done --> Plan:::done --> Build:::done --> Review:::done --> Fix1:::done --> Verify["Verify ✓ 259 tests, clippy, doc"]:::done --> Merge["Merge ✓ e928bea"]:::done --> Retro:::todo
   classDef done fill:#2e7d32,color:#fff
   classDef todo fill:#9e9e9e,color:#fff
 ```
@@ -75,6 +75,7 @@ flowchart LR
 | Fix round 5 (user check) | done | orchestrator, at the user's request ("fais le toi-même"): the search as today's site, home and results (Summary); `SnippetKind` and `score` on `HitDto` (the quote / paragraph and the relevance bar need them; `Eq` dropped, float); `Select` gains `form` and `submit_on_change`; new `ui/search_row.rs`; locales: `read_link`, `results_label`/`results_one`, `no_result_*`, `relevance_label` from the old `search.*`. 120 tests (was 112), fmt, clippy ssr, rustdoc `-D warnings` green; the watcher rebuilt the wasm (hydrate compiles); CDP capture at 1280 and 390 (mobile emulation, scrollWidth = viewport), home and results, looked at |
 | Verify | done | orchestrator, 2026-10-12, on feat/v1-front 27f028c: fmt, leptosfmt, clippy ssr all-targets, clippy hydrate wasm32, 259 tests, rustdoc — all 0. Carries 002–006, 008, 009 and the licence (826c84c) |
 | Check | done | user, 2026-10-12: "ajoute … la licence, le 404, et le fix du tel" — merge on main |
+| Merge | done | orchestrator: squash e928bea on search-front main (with 002–006, 008, 009 and the licence); `feat/v1-front` and its worktree removed; `feat/deploy` rebased onto main (one conflict in Cargo.toml: kept rust-version 1.91 and the licence; 322 tests) |
 
 ## Before the merge
 - ui-lib main pushed to GitHub at 7e39d28 (user "push !", 2026-10-05): search-front's CI and deploy fetch `PaliCanon/ui-lib` main by git, the local `[patch]` does not exist on a runner (006).
@@ -102,3 +103,6 @@ fixed now:
   client must translate `both`↔`hybrid` at the plug-in boundary — decide
   where that translation lives (api task 002's client, or `Mode::code`
   itself) when it is built.
+
+## Merge
+search-front `e928bea`.
