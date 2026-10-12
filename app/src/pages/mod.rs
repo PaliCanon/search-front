@@ -109,12 +109,27 @@ pub(crate) struct PageText {
     pub description: &'static str,
     /// The paragraphs under the title.
     pub intro: &'static [&'static str],
+    /// Support only: the search showcase, before the app's.
+    pub search: Option<SearchBlock>,
     /// Support only: the app showcase, before the sections.
     pub app: Option<AppBlock>,
     /// Support only: the `@daily_sutta` showcase, before the sections.
     pub instagram: Option<InstagramBlock>,
     /// The page's sections, in order.
     pub sections: &'static [Section],
+}
+
+/// The search's showcase (Support).
+#[derive(Debug)]
+pub(crate) struct SearchBlock {
+    /// Its heading, also the carousel's name.
+    pub h: &'static str,
+    /// One line on the search.
+    pub tagline: &'static str,
+    /// The button's label, linking to the search.
+    pub cta: &'static str,
+    /// The screenshots' alt texts, in the screenshots' order.
+    pub alts: &'static [&'static str],
 }
 
 /// The Tipiṭaka app's showcase (Support).
@@ -229,6 +244,7 @@ mod tests {
                 let page = kind.text(locale);
                 let support = kind == PageKind::Support;
                 assert_eq!(page.app.is_some(), support, "{kind:?}");
+                assert_eq!(page.search.is_some(), support, "{kind:?}");
                 assert_eq!(page.instagram.is_some(), support, "{kind:?}");
             }
         }

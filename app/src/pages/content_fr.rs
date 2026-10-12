@@ -4,7 +4,7 @@
 //! pointers to it dropped — task 001, fix round 4; AI mentions removed —
 //! task 004). Data, not code: regenerate rather than edit by hand.
 
-use super::{AppBlock, Cta, InstagramBlock, PageText, Pages, Section, Table};
+use super::{AppBlock, Cta, InstagramBlock, PageText, Pages, SearchBlock, Section, Table};
 
 /// Every footer page, in this language.
 pub(super) const PAGES: Pages = Pages {
@@ -14,6 +14,7 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon est un moteur de recherche, pas une source. Tout ce qu’il vous permet de trouver a été réalisé par d’autres et offert ; cette page dit par qui, et sous quelle licence.",
         ],
+        search: None,
         app: None,
         instagram: None,
         sections: &[
@@ -62,6 +63,7 @@ pub(super) const PAGES: Pages = Pages {
             "Cette traduction est fournie pour votre confort ; en cas de divergence, la version anglaise prévaut.",
             "Les présentes conditions régissent votre utilisation de PaliCanon (le « Service »), édité par Thibault Rivière (l’« Éditeur »). En utilisant le Service, vous les acceptez.",
         ],
+        search: None,
         app: None,
         instagram: None,
         sections: &[
@@ -120,6 +122,7 @@ pub(super) const PAGES: Pages = Pages {
             "Cette traduction est fournie pour votre confort ; en cas de divergence, la version anglaise prévaut.",
             "Voici l’information requise par le Règlement général sur la protection des données (RGPD). Le responsable du traitement est Thibault Rivière, contact riviere.thibault@icloud.com. PaliCanon n’a pas de comptes, ne dépose aucun cookie et n’utilise ni publicité ni pistage par des tiers.",
         ],
+        search: None,
         app: None,
         instagram: None,
         sections: &[
@@ -188,6 +191,18 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon et l’application Tipiṭaka pour iPhone sont gratuites : pas de publicité, pas de compte, rien de vous à vendre. Une seule personne les conçoit et les fait vivre.",
         ],
+        search: Some(SearchBlock {
+            h: "La recherche",
+            tagline: "Cherchez dans tout le Canon pāli par les mots dont vous vous souvenez ou par ce que vous voulez dire : en anglais, en français et en vietnamien, avec le passage et un lien pour le lire.",
+            cta: "Chercher dans le Canon",
+            alts: &[
+                "L’accueil de la recherche",
+                "Résultats pour une question",
+                "Résultats par mots exacts",
+                "Une recherche en français",
+                "Le thème sombre",
+            ],
+        }),
         app: Some(AppBlock {
             h: "L’application Tipiṭaka",
             tagline: "Tout le Canon pali sur votre iPhone, hors ligne : pali et traductions côte à côte, un dictionnaire sur chaque mot, des parcours d’étude, des notes — en anglais, en français et en vietnamien.",

@@ -4,7 +4,7 @@
 //! pointers to it dropped — task 001, fix round 4; AI mentions removed —
 //! task 004). Data, not code: regenerate rather than edit by hand.
 
-use super::{AppBlock, Cta, InstagramBlock, PageText, Pages, Section, Table};
+use super::{AppBlock, Cta, InstagramBlock, PageText, Pages, SearchBlock, Section, Table};
 
 /// Every footer page, in this language.
 pub(super) const PAGES: Pages = Pages {
@@ -14,6 +14,7 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon là một công cụ tìm kiếm, không phải một nguồn kinh văn. Mọi thứ bạn tìm thấy ở đây đều do người khác tạo ra và rộng lòng trao tặng; trang này ghi lại đó là ai, và theo giấy phép nào.",
         ],
+        search: None,
         app: None,
         instagram: None,
         sections: &[
@@ -62,6 +63,7 @@ pub(super) const PAGES: Pages = Pages {
             "Bản tiếng Việt này chỉ nhằm giúp bạn dễ đọc; nếu có khác biệt, bản tiếng Anh được ưu tiên áp dụng.",
             "Các điều khoản này điều chỉnh việc bạn sử dụng PaliCanon (“Dịch vụ”), do Thibault Rivière phát hành (“Bên phát hành”). Khi sử dụng Dịch vụ, bạn chấp nhận các điều khoản này.",
         ],
+        search: None,
         app: None,
         instagram: None,
         sections: &[
@@ -120,6 +122,7 @@ pub(super) const PAGES: Pages = Pages {
             "Bản tiếng Việt này chỉ nhằm giúp bạn dễ đọc; nếu có khác biệt, bản tiếng Anh được ưu tiên áp dụng.",
             "Đây là thông báo về quyền riêng tư theo yêu cầu của Quy định chung về bảo vệ dữ liệu của Liên minh châu Âu (GDPR). Bên kiểm soát dữ liệu là Thibault Rivière, liên hệ riviere.thibault@icloud.com. PaliCanon không có tài khoản người dùng, không đặt cookie, và không dùng quảng cáo hay công cụ theo dõi của bên thứ ba.",
         ],
+        search: None,
         app: None,
         instagram: None,
         sections: &[
@@ -188,6 +191,18 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon và ứng dụng Tipiṭaka cho iPhone đều miễn phí: không quảng cáo, không tài khoản, không có gì của bạn bị đem bán. Một người duy nhất xây dựng và duy trì chúng.",
         ],
+        search: Some(SearchBlock {
+            h: "Tìm kiếm",
+            tagline: "Tìm trong toàn bộ Kinh tạng Pāli theo những từ bạn nhớ hoặc theo ý bạn muốn nói: bằng tiếng Anh, tiếng Pháp và tiếng Việt, kèm đoạn kinh và đường dẫn để đọc.",
+            cta: "Tìm trong Kinh tạng",
+            alts: &[
+                "Trang chủ của công cụ tìm kiếm",
+                "Kết quả cho một câu hỏi",
+                "Kết quả theo từ chính xác",
+                "Một lượt tìm bằng tiếng Pháp",
+                "Giao diện tối",
+            ],
+        }),
         app: Some(AppBlock {
             h: "Ứng dụng Tipiṭaka",
             tagline: "Trọn bộ Tam Tạng Pāli trên iPhone của bạn, dùng được khi ngoại tuyến: Pāli và bản dịch song song, từ điển cho từng từ, lộ trình học, ghi chú — bằng tiếng Anh, tiếng Pháp và tiếng Việt.",

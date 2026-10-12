@@ -11,9 +11,10 @@
 use leptos::prelude::*;
 use leptos_i18n::td_string;
 use leptos_meta::{Meta, Title};
+use palicanon_ui_lib::Carousel;
 
 use super::rich::{Span, spans};
-use super::{AppBlock, InstagramBlock, PageKind, PageText, Section, Table, pages};
+use super::{AppBlock, InstagramBlock, PageKind, PageText, SearchBlock, Section, Table, pages};
 use crate::catalogue::{Strings, strings};
 use crate::components::home::BrandLink;
 
@@ -39,6 +40,15 @@ const APP_SHOTS: [&str; 5] = [
     "/support/app-search.jpg",
     "/support/app-concept-graph.jpg",
     "/support/app-notes.jpg",
+];
+
+/// The search's screenshots, in the order of [`SearchBlock::alts`].
+const SEARCH_SHOTS: [&str; 5] = [
+    "/support/search-home.jpg",
+    "/support/search-results.jpg",
+    "/support/search-words.jpg",
+    "/support/search-french.jpg",
+    "/support/search-dark.jpg",
 ];
 
 /// The footer page `kind`, in the app's language.
@@ -129,25 +139,35 @@ fn Body(page: &'static PageText) -> impl IntoView {
     view! {
         <h1 class="font-serif text-3xl font-semibold text-heading">{page.title}</h1>
         {page.intro.iter().map(|p| view! { <p class=P>{rich(p)}</p> }).collect_view()}
+        {page.search.as_ref().map(search_block)}
         {page.app.as_ref().map(app_block)}
         {page.instagram.as_ref().map(instagram_block)}
         {page.sections.iter().map(section).collect_view()}
     }
 }
 
+/// Support's showcase of the search: the lotus and the name, the tagline,
+/// the button to the search, the screenshots.
+fn search_block(search: &'static SearchBlock) -> impl IntoView {
+    view! {
+        <section>
+            <h2 class=H2>{search.h}</h2>
+            <div class="mt-3 flex items-center gap-3">
+                <img src="/lotus.png" alt="" width="48" height="48" />
+                <p class="font-serif text-lg font-semibold text-heading">"PaliCanon"</p>
+            </div>
+            <p class=P>{search.tagline}</p>
+            <a href="/" class=BTN>
+                {search.cta}
+            </a>
+            {shots("search-shots", search.h, &SEARCH_SHOTS, search.alts)}
+        </section>
+    }
+}
+
 /// Support's showcase of the Tipiṭaka app: icon, name, tagline, the App
 /// Store button, the screenshots.
 fn app_block(app: &'static AppBlock) -> impl IntoView {
-    let shots = APP_SHOTS.iter().zip(app.alts).map(|(src, alt)| {
-        view! {
-            <img
-                src=*src
-                alt=*alt
-                loading="lazy"
-                class="h-auto w-[150px] shrink-0 rounded-lg sm:w-[180px]"
-            />
-        }
-    });
     view! {
         <section>
             <h2 class=H2>{app.h}</h2>
@@ -159,8 +179,49 @@ fn app_block(app: &'static AppBlock) -> impl IntoView {
             <a href=APP_STORE target="_blank" rel="noopener" class=BTN>
                 {format!("{} ↗", app.cta)}
             </a>
-            <div class="mt-4 flex gap-3 overflow-x-auto pb-2">{shots.collect_view()}</div>
+            {shots("app-shots", app.h, &APP_SHOTS, app.alts)}
         </section>
+    }
+}
+
+/// The width of a screenshot slide from `sm`: four in view (the column's
+/// width minus three 0.75 rem gaps, over four), about 167 px in the 704 px
+/// column and close to the old 180 px strip. Below `sm` see
+/// [`SHOTS_PHONE_LAYOUT`].
+const SHOTS_LAYOUT: &str = "sm:w-[calc((100%-2.25rem)/4)]";
+
+/// The width of a screenshot slide below `sm`: two whole slides (the
+/// column's width minus one 0.75 rem gap, over two), no peek of the next
+/// (user, 2026-10-12: "non pas de bout de la suivante").
+const SHOTS_PHONE_LAYOUT: &str = "w-[calc((100%-0.75rem)/2)]";
+
+/// A block's screenshots in a [`Carousel`] named `label`, one slide each;
+/// every image carries its size (554 × 1200) so the slides' edges do not
+/// move when it loads.
+fn shots(
+    id: &'static str,
+    label: &'static str,
+    srcs: &'static [&'static str],
+    alts: &'static [&'static str],
+) -> impl IntoView {
+    let slides = srcs.iter().zip(alts).map(|(src, alt)| {
+        view! {
+            <img
+                src=*src
+                alt=*alt
+                width="554"
+                height="1200"
+                loading="lazy"
+                class="w-full h-auto rounded-lg"
+            />
+        }
+    });
+    view! {
+        <div class="mt-4">
+            <Carousel id=id label=label slide_layout=SHOTS_LAYOUT phone_layout=SHOTS_PHONE_LAYOUT>
+                {slides.collect_view()}
+            </Carousel>
+        </div>
     }
 }
 
@@ -346,6 +407,14 @@ mod tests {
         assert!(html.contains(">Get the iPhone app ↗</a>"), "{html}");
         assert!(html.contains(r#"src="/support/app-icon.jpg""#), "{html}");
         assert_eq!(html.matches(r#"src="/support/app-"#).count(), 6, "{html}");
+        let shots = html.find(r#"id="app-shots""#).expect(&html);
+        let icon = html.find(r#"src="/support/app-icon.jpg""#).expect(&html);
+        assert!(icon < shots, "the icon is outside the carousel: {html}");
+        assert_eq!(
+            html[shots..].matches(r#"src="/support/app-"#).count(),
+            5,
+            "the five screenshots are in the carousel: {html}"
+        );
         assert!(
             html.contains(r#"alt="Taking notes on a passage""#),
             "{html}"
@@ -362,6 +431,170 @@ mod tests {
         let app = html.find("The Tipiṭaka app").expect(&html);
         let first_section = html.find("What it costs").expect(&html);
         assert!(app < first_section, "showcases before the sections: {html}");
+    }
+
+    /// The Support page's two showcases are two carousels, the Search
+    /// block first, each slide holding one screenshot.
+    #[test]
+    fn support_has_two_carousels_search_before_the_app() {
+        let html = render(Language::En, PageKind::Support);
+        assert_eq!(
+            html.matches(r#"aria-roledescription="carousel""#).count(),
+            2,
+            "{html}"
+        );
+        let search = html.find(r#"id="search-shots""#).expect(&html);
+        let app = html.find(r#"id="app-shots""#).expect(&html);
+        assert!(search < app, "search block first: {html}");
+        let search_h = html.find(">The search</h2>").expect(&html);
+        let app_h = html.find(">The Tipiṭaka app</h2>").expect(&html);
+        assert!(search_h < search && search < app_h && app_h < app, "{html}");
+        let search_part = &html[search..app_h];
+        let app_part = &html[app..html.find(">On Instagram</h2>").expect(&html)];
+        for name in ["home", "results", "words", "french", "dark"] {
+            let src = format!(r#"src="/support/search-{name}.jpg""#);
+            assert_eq!(html.matches(&src).count(), 1, "{name}: {html}");
+            assert!(search_part.contains(&src), "{name} in the search carousel");
+        }
+        assert_eq!(
+            html.matches(r#"src="/support/search-"#).count(),
+            5,
+            "{html}"
+        );
+        assert_eq!(search_part.matches("<img").count(), 5, "{search_part}");
+        for name in ["main", "reader", "search", "concept-graph", "notes"] {
+            let src = format!(r#"src="/support/app-{name}.jpg""#);
+            assert!(app_part.contains(&src), "{name} in the app carousel");
+        }
+        assert_eq!(app_part.matches(r#"role="group""#).count(), 5, "{app_part}");
+        assert_eq!(
+            search_part.matches(r#"role="group""#).count(),
+            5,
+            "{search_part}"
+        );
+        assert!(
+            !html.contains("overflow-x-auto pb-2"),
+            "the strip is gone: {html}"
+        );
+    }
+
+    /// Both carousels show four slides from `sm`, not the library's two.
+    #[test]
+    fn support_slides_show_four_in_view_from_sm() {
+        let html = render(Language::En, PageKind::Support);
+        assert_eq!(
+            html.matches("sm:w-[calc((100%-2.25rem)/4)]").count(),
+            10,
+            "{html}"
+        );
+        assert_eq!(
+            html.matches("sm:w-[calc((100%-0.75rem)/2)]").count(),
+            0,
+            "{html}"
+        );
+    }
+
+    /// On a phone both carousels show two whole slides and no peek of the
+    /// next, not the library's 85%.
+    #[test]
+    fn support_slides_show_two_whole_on_a_phone() {
+        let html = render(Language::En, PageKind::Support);
+        assert_eq!(
+            html.matches("w-[calc((100%-0.75rem)/2)]").count()
+                - html.matches("sm:w-[calc((100%-0.75rem)/2)]").count(),
+            10,
+            "{html}"
+        );
+        assert_eq!(html.matches("w-[85%]").count(), 0, "{html}");
+    }
+
+    /// The Search block: the lotus and the name, the tagline, a button
+    /// to the search in the same tab.
+    #[test]
+    fn the_search_block_has_its_button_to_the_search_in_the_same_tab() {
+        let html = render(Language::En, PageKind::Support);
+        assert!(html.contains(">PaliCanon</p>"), "{html}");
+        let h2 = html.find(">The search</h2>").expect(&html);
+        let app_h = html.find(">The Tipiṭaka app</h2>").expect(&html);
+        let block = &html[h2..app_h];
+        assert!(block.contains(r#"src="/lotus.png""#), "{block}");
+        let button = tag_of(block, ">Search the Canon</a>");
+        assert!(button.contains(r#"href="/""#), "{button}");
+        assert!(!button.contains("target"), "{button}");
+        assert!(!block.contains("Search the Canon ↗"), "{block}");
+        assert!(
+            block.contains("rounded-lg border border-gold/60"),
+            "{block}"
+        );
+    }
+
+    /// The Search block's texts and alt texts, per language.
+    #[test]
+    fn the_search_block_speaks_the_three_languages() {
+        for (language, h, tagline, cta, alt) in [
+            (
+                Language::En,
+                "The search",
+                "Search the whole Pāli Canon by the words you remember or by what you mean: in English, French and Vietnamese, with the passage and a link to read it.",
+                "Search the Canon",
+                "The dark theme",
+            ),
+            (
+                Language::Fr,
+                "La recherche",
+                "Cherchez dans tout le Canon pāli par les mots dont vous vous souvenez ou par ce que vous voulez dire : en anglais, en français et en vietnamien, avec le passage et un lien pour le lire.",
+                "Chercher dans le Canon",
+                "Le thème sombre",
+            ),
+            (
+                Language::Vi,
+                "Tìm kiếm",
+                "Tìm trong toàn bộ Kinh tạng Pāli theo những từ bạn nhớ hoặc theo ý bạn muốn nói: bằng tiếng Anh, tiếng Pháp và tiếng Việt, kèm đoạn kinh và đường dẫn để đọc.",
+                "Tìm trong Kinh tạng",
+                "Giao diện tối",
+            ),
+        ] {
+            let html = render(language, PageKind::Support);
+            assert!(html.contains(&format!(">{h}</h2>")), "{language:?}: {html}");
+            assert!(html.contains(tagline), "{language:?}: {html}");
+            assert!(
+                html.contains(&format!(">{cta}</a>")),
+                "{language:?}: {html}"
+            );
+            assert!(html.contains(&format!(r#"alt="{alt}""#)), "{language:?}");
+        }
+        let html = render(Language::En, PageKind::Support);
+        for alt in [
+            "The search's home",
+            "Results for a question",
+            "Results by exact words",
+            "A search in French",
+        ] {
+            assert!(html.contains(&format!(r#"alt="{alt}""#)), "{alt}: {html}");
+        }
+    }
+
+    /// `shots` zips the screenshots with their alt texts: a language
+    /// with fewer alts would drop a slide silently.
+    #[test]
+    fn every_screenshot_has_its_alt_text_in_every_language() {
+        for language in [Language::En, Language::Fr, Language::Vi] {
+            let page = PageKind::Support.text(locale_of(language));
+            let search = page.search.as_ref().expect("a search block");
+            let app = page.app.as_ref().expect("an app block");
+            assert_eq!(search.alts.len(), SEARCH_SHOTS.len(), "{language:?}");
+            assert_eq!(app.alts.len(), APP_SHOTS.len(), "{language:?}");
+        }
+    }
+
+    /// The lotus beside the name is decoration: the name says it.
+    #[test]
+    fn the_search_blocks_lotus_has_an_empty_alt() {
+        let html = render(Language::En, PageKind::Support);
+        let h2 = html.find(">The search</h2>").expect(&html);
+        let block = &html[h2..];
+        let lotus = tag_of(block, r#"src="/lotus.png""#);
+        assert!(lotus.contains(r#"alt="""#), "{lotus}");
     }
 
     /// Rich text: bold, an outside link (new tab), a link on this site
