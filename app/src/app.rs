@@ -22,13 +22,14 @@ use crate::page::SearchPage;
 use crate::pages::{FooterPage, PageKind};
 
 /// The branch this build came from (`build.rs`,
-/// `SEARCH_FRONT_GIT_BRANCH`): `main`, `feat/…` — this service's own
+/// `SEARCH_FRONT_GIT_BRANCH`, from git, or from the `BUILD_BRANCH` the
+/// image build passes when it has no `.git`): `main`, `feat/…` — this service's own
 /// `env` for [`EnvBadgeInfo`] (replaced by `dev` / `prod` once this
 /// deploys, like every other service).
 pub(crate) const BUILD_BRANCH: &str = env!("SEARCH_FRONT_GIT_BRANCH");
 /// The short commit this build came from (`build.rs`,
-/// `SEARCH_FRONT_GIT_SHA`), a trailing `*` when the worktree had
-/// uncommitted changes at build time.
+/// `SEARCH_FRONT_GIT_SHA`, from git, or from `BUILD_SHA`), a trailing `*`
+/// when the worktree had uncommitted changes at build time (git only).
 pub(crate) const BUILD_SHA: &str = env!("SEARCH_FRONT_GIT_SHA");
 
 /// This build, as the footer's badge shows it (at the footer's left —

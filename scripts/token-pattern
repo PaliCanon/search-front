@@ -1,0 +1,1 @@
+pc_(dev|prod)_[0-9A-Za-z]{43}

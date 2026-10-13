@@ -133,3 +133,121 @@ fn a_bundle_holding_the_mock_in_wasm_fails() {
     assert!(stderr(&out).contains("MockSource"), "{}", stderr(&out));
     assert!(stderr(&out).contains("app.wasm"), "{}", stderr(&out));
 }
+
+/// 43 base62 characters, the body of a PaliCanon API token.
+fn body(len: usize) -> String {
+    "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0U1v2W3x4Y5z6"[..len].to_owned()
+}
+
+/// A bundle holding one token-shaped string fails, whatever its environment
+/// (`pc_dev_`, `pc_prod_`), in a `.js` and in a `.wasm`; the failure names
+/// the file and "token shape", never the bytes.
+#[test]
+fn a_token_shaped_string_fails_the_check_without_being_printed() {
+    for prefix in ["pc_dev_", "pc_prod_"] {
+        let token = format!("{prefix}{}", body(43));
+        let pkg = Pkg::with("shape", &format!("var t = '{token}';"));
+        let out = pkg.check(None);
+        assert_eq!(out.status.code(), Some(1), "{prefix}: {}", stderr(&out));
+        assert!(stderr(&out).contains("token shape"), "{}", stderr(&out));
+        assert!(stderr(&out).contains("a.js"), "{}", stderr(&out));
+        for text in [
+            stderr(&out),
+            String::from_utf8_lossy(&out.stdout).into_owned(),
+        ] {
+            assert!(!text.contains(&body(20)), "{prefix}: the token is printed");
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("check-wasm-script-shape-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a temp dir");
+    let wasm = [
+        b"\0asm\x01\0\0\0".as_slice(),
+        format!("pc_dev_{}", body(43)).as_bytes(),
+    ]
+    .concat();
+    std::fs::write(dir.join("app.wasm"), wasm).expect("wasm written");
+    let pkg = Pkg(dir);
+    let out = pkg.check(None);
+    assert_eq!(out.status.code(), Some(1), "wasm: {}", stderr(&out));
+    assert!(stderr(&out).contains("app.wasm"), "{}", stderr(&out));
+}
+
+/// What is not a token's shape passes: one character short, another
+/// environment, a character outside base62 inside the body.
+#[test]
+fn near_misses_of_the_token_shape_pass() {
+    let dashed = format!("pc_dev_{}-{}", body(20), body(22));
+    let cases = [
+        ("42 characters", format!("pc_dev_{}", body(42))),
+        ("other environment", format!("pc_stage_{}", body(43))),
+        ("no prefix", body(43)),
+        ("a dash inside", dashed),
+    ];
+    for (case, content) in cases {
+        let pkg = Pkg::with("near", &format!("var t = '{content}';"));
+        let out = pkg.check(None);
+        assert_eq!(out.status.code(), Some(0), "{case}: {}", stderr(&out));
+    }
+}
+
+/// Whether `grep -E pattern` matches `text`.
+fn shape_matches(pattern: &str, text: &str) -> bool {
+    use std::io::Write as _;
+    let mut grep = Command::new("grep")
+        .args(["-Eq", pattern])
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .expect("grep runs");
+    let mut stdin = grep.stdin.take().expect("stdin");
+    stdin.write_all(text.as_bytes()).expect("written");
+    drop(stdin);
+    grep.wait().expect("grep ends").success()
+}
+
+/// The shape lives in `scripts/token-pattern`, one line, read by the
+/// script: changing that file changes the verdict.
+#[test]
+fn the_script_reads_the_shape_from_token_pattern() {
+    let scripts = Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts");
+    let pattern = std::fs::read_to_string(scripts.join("token-pattern")).expect("token-pattern");
+    assert_eq!(pattern.trim_end().lines().count(), 1, "one line: {pattern}");
+    let token = format!("pc_dev_{}", body(43));
+    assert!(
+        shape_matches(pattern.trim_end(), &token),
+        "the file's pattern matches a token: {pattern}"
+    );
+
+    let dir = std::env::temp_dir().join(format!("check-wasm-pattern-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a temp dir");
+    std::fs::copy(scripts.join("check-wasm-no-token.sh"), dir.join("check.sh")).expect("copy");
+    std::fs::write(dir.join("token-pattern"), "zzz[0-9]{3}\n").expect("pattern");
+    let run = |content: &str| {
+        let pkg = Pkg::with("pattern", content);
+        Command::new("bash")
+            .arg(dir.join("check.sh"))
+            .env("PKG_DIR", &pkg.0)
+            .output()
+            .expect("bash runs the copy")
+    };
+    assert_eq!(
+        run("a zzz123 b").status.code(),
+        Some(1),
+        "the new shape fails"
+    );
+    assert_eq!(
+        run(&token).status.code(),
+        Some(0),
+        "the old shape passes now"
+    );
+    std::fs::remove_file(dir.join("token-pattern")).expect("remove the pattern");
+    let out = run("clean");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "no pattern file: {}",
+        stderr(&out)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

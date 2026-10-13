@@ -3,6 +3,7 @@ name = "search_front"
 description = "search-front: the PaliCanon search page, Leptos SSR + hydrate on palicanon-ui-lib."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish = false
 
@@ -25,6 +26,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"]
 # The PaliCanon API's typed client (server side only: it refuses to build for
 # wasm32). Built from ../api (the workspace's [patch]) until it is published.
 palicanon-api-client = { git = "ssh://git@github.com/PaliCanon/api.git", branch = "main", optional = true }
+# The origin guard compares the Worker's secret in constant time (`origin.rs`).
+subtle = { version = "2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 # The browser clock for the day index (`components::home::now_ms`); already
@@ -61,6 +64,7 @@ ssr = [
   "dep:axum",
   "dep:tokio",
   "dep:leptos_axum",
+  "dep:subtle",
   "dep:palicanon-api-client",
   "leptos/ssr",
   "leptos_meta/ssr",

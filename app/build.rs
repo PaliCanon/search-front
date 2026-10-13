@@ -10,7 +10,8 @@
 //! (`placeholders.rs`): `leptos_i18n` would render it without its value.
 //!
 //! **The build's git identity** ([`capture_git_info`]): captures the git
-//! branch and short commit this service was built from, as
+//! branch and short commit this service was built from (or `BUILD_BRANCH` /
+//! `BUILD_SHA`, when both are given: the image has no `.git`), as
 //! `SEARCH_FRONT_GIT_BRANCH` / `SEARCH_FRONT_GIT_SHA` (read with `env!` in
 //! `src/app.rs`), so the badge the server renders and the one the browser
 //! hydrates always agree: both come from the very same build.
@@ -100,8 +101,28 @@ fn assert_placeholder_parity() {
 }
 
 /// Sets `SEARCH_FRONT_GIT_BRANCH` / `SEARCH_FRONT_GIT_SHA` for the env
-/// badge, and watches the refs they come from.
+/// badge. `BUILD_BRANCH` and `BUILD_SHA` (both, not blank) win over git: the
+/// image has no `.git`, so its build passes them in. They are read here, at
+/// compile time, because the badge is compiled into the server and into the
+/// WASM the browser hydrates, and the two must agree. Otherwise the values
+/// come from `git`, and the refs they come from are watched.
 fn capture_git_info() {
+    println!("cargo:rerun-if-env-changed=BUILD_BRANCH");
+    println!("cargo:rerun-if-env-changed=BUILD_SHA");
+    let given = git_info::env_override(
+        std::env::var("BUILD_BRANCH").ok(),
+        std::env::var("BUILD_SHA").ok(),
+    );
+    if let Some((branch, sha)) = given {
+        println!("cargo:rustc-env=SEARCH_FRONT_GIT_BRANCH={branch}");
+        println!("cargo:rustc-env=SEARCH_FRONT_GIT_SHA={sha}");
+        return;
+    }
+    capture_from_git();
+}
+
+/// The badge's values from `git`, and a watch on the refs they come from.
+fn capture_from_git() {
     let branch_raw = git(&["rev-parse", "--abbrev-ref", "HEAD"]);
     let sha_raw = git(&["rev-parse", "--short", "HEAD"]);
     if branch_raw.is_none() || sha_raw.is_none() {

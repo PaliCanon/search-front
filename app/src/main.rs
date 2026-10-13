@@ -11,6 +11,7 @@ async fn main() {
 
     use leptos::prelude::get_configuration;
     use search_front::boot::Config;
+    use search_front::origin::Origin;
     use search_front::router::router;
 
     // The error names a variable, never a value.
@@ -21,13 +22,21 @@ async fn main() {
             std::process::exit(2);
         }
     };
+    let origin = match Origin::from_lookup(|name| std::env::var(name).ok()) {
+        Ok(origin) => origin,
+        Err(err) => {
+            eprintln!("search-front: {err}");
+            std::process::exit(2);
+        }
+    };
     println!("{}", config.log_line());
+    println!("{}", origin.log_line());
     let source = Arc::new(config.into_source());
 
     let conf = get_configuration(None).expect("leptos configuration");
     let options = conf.leptos_options;
     let addr = options.site_addr;
-    let app = router(options, source);
+    let app = router(options, source, origin);
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await

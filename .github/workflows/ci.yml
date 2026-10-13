@@ -1,0 +1,221 @@
+# The README's checks, one job each. Every job that runs cargo has three
+# checkouts side by side, because the workspace reaches `../ui-lib` and
+# `../api` (its [patch], app/style/main.css, app/build.rs) and both are
+# private: this repository goes into `search-front/` and the `siblings`
+# action puts ui-lib and the api beside it with a short-lived GitHub App
+# token (no deploy key, no credential left in any .git/config). Cargo steps
+# run in `search-front/` (`defaults.run`). No `--all-features`, no
+# `--workspace`: `ssr` and `hydrate` do not build together.
+#
+# Repository secrets used: APP_ID, APP_PRIVATE_KEY (the GitHub App, Contents:
+# read on ui-lib, api and search-front), CODECOV_TOKEN (optional).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    working-directory: search-front
+
+jobs:
+  fmt:
+    name: rustfmt + leptosfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo install leptosfmt --locked
+      - run: leptosfmt --check .
+
+  clippy:
+    name: clippy (${{ matrix.feature }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - feature: ssr
+            args: -p search_front --features ssr --all-targets
+          - feature: hydrate
+            args: -p search_front --lib --features hydrate --target wasm32-unknown-unknown
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - run: cargo clippy --locked ${{ matrix.args }} -- -D warnings
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked -p search_front --features ssr
+
+  docs:
+    name: rustdoc
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo doc --locked --no-deps -p search_front --features ssr
+
+  msrv:
+    # 1.91, not lower: the API client and its types (Duration::from_mins, let
+    # chains) need it, and so does `uuid` 1.89 (task 007, probe P3).
+    name: msrv (1.91)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@1.91
+      # --locked: the committed Cargo.lock is what the MSRV claim is verified
+      # against; a fresh resolution could pull a dependency with a higher MSRV.
+      - run: cargo check --locked -p search_front --features ssr
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov -p search_front --features ssr --lcov --output-path lcov.info
+      - uses: codecov/codecov-action@v7
+        with:
+          files: lcov.info
+          working-directory: search-front
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  bundle:
+    # The browser bundle holds no token and no API client: `cargo leptos
+    # build`, then scripts/check-wasm-no-token.sh (the image build runs the
+    # same check, this one fails earlier and on pull requests).
+    name: bundle (no token in the wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # The tools, cached by the versions that shape them: cargo-leptos as the
+      # Dockerfile pins it, wasm-bindgen-cli read from the lock (it must match
+      # the crate to the patch version).
+      - name: Read the wasm-bindgen version of the lock
+        id: wbg
+        run: echo "version=$(awk '/^name = "wasm-bindgen"$/ {getline; gsub(/[^0-9.]/, ""); print; exit}' Cargo.lock)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: tools
+        with:
+          path: ~/.cargo/bin
+          key: leptos-tools-0.3.11-wbg-${{ steps.wbg.outputs.version }}
+      - if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          cargo install cargo-leptos --version 0.3.11 --locked
+          cargo install wasm-bindgen-cli --version "${{ steps.wbg.outputs.version }}" --locked
+      - run: cargo leptos build --release --cargo-locked
+      - run: scripts/check-wasm-no-token.sh
+
+  scripts:
+    # The shell, Python and Node tests that guard the deploy.
+    name: scripts, workflows, Worker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install pyyaml
+      - run: python3 scripts/check_workflows_test.py
+      - run: python3 scripts/check_workflows.py
+      - run: bash scripts/manifest-ref.test.sh
+      - run: bash scripts/serving-revision.test.sh
+      - run: bash infra/scripts/origin-secret.test.sh
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test infra/worker/
+
+  tofu:
+    name: tofu (fmt, validate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.12.6
+      - run: tofu fmt -check -recursive
+        working-directory: search-front/infra
+      - run: tofu init -backend=false -input=false
+        working-directory: search-front/infra
+      - run: tofu validate
+        working-directory: search-front/infra

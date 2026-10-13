@@ -11,6 +11,7 @@ use std::time::Duration;
 use leptos::prelude::LeptosOptions;
 
 use super::router;
+use crate::origin::{ORIGIN_HEADER, Origin, OriginSecret};
 use crate::page::harness::exclusive;
 use crate::search::mock::{COLD_QUERY, ERROR_QUERY, MockSource, RATE_LIMITED_QUERY};
 use crate::search::real::{ApiToken, RealSource};
@@ -112,10 +113,50 @@ async fn post_form(addr: SocketAddr, path: &str, body: &str) -> Http {
     post_typed(addr, path, "application/x-www-form-urlencoded", body).await
 }
 
+/// Header lines, each ending in CRLF.
+fn header_lines(headers: &[(&str, &str)]) -> String {
+    use std::fmt::Write as _;
+    headers
+        .iter()
+        .fold(String::new(), |mut lines, (name, value)| {
+            let _ = write!(lines, "{name}: {value}\r\n");
+            lines
+        })
+}
+
+/// `GET path` carrying `headers` (name, value), repeated names allowed.
+async fn get_with(addr: SocketAddr, path: &str, headers: &[(&str, &str)]) -> Http {
+    let extra = header_lines(headers);
+    let request = format!("GET {path} HTTP/1.0\r\nHost: localhost\r\n{extra}\r\n");
+    send(addr, request.into_bytes()).await
+}
+
+/// `POST path` with a form body and `headers`.
+async fn post_form_with(
+    addr: SocketAddr,
+    path: &str,
+    body: &str,
+    headers: &[(&str, &str)],
+) -> Http {
+    let extra = header_lines(headers);
+    let request = format!(
+        "POST {path} HTTP/1.0\r\nHost: localhost\r\n{extra}\
+         Content-Type: application/x-www-form-urlencoded\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    );
+    send(addr, request.into_bytes()).await
+}
+
 /// The router over `source`, serving on a free local port of this runtime.
 async fn serve(source: Source) -> SocketAddr {
+    serve_with(source, Origin::Open).await
+}
+
+/// The router over `source` and `origin`.
+async fn serve_with(source: Source, origin: Origin) -> SocketAddr {
     let options = LeptosOptions::builder().output_name("search-front").build();
-    let app = router(options, Arc::new(source));
+    let app = router(options, Arc::new(source), origin);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("a free local port");
@@ -395,4 +436,159 @@ async fn an_empty_search_box_is_a_valid_no_op() {
         "the home may be cached"
     );
     assert!(!answer.everything().contains(CANARY), "leaked");
+}
+
+/// The origin secret of the guard tests: no real one looks like it.
+const SECRET: &str = "origin_canary_router_2e8c";
+
+/// The mock source behind a guard that wants [`SECRET`].
+async fn guarded_mock() -> SocketAddr {
+    let origin = Origin::Checked(OriginSecret::new(SECRET));
+    serve_with(Source::Mock(MockSource), origin).await
+}
+
+/// A refusal says nothing: a 403, an empty body, no echo, nothing cached.
+fn assert_refused(answer: &Http, case: &str) {
+    assert_eq!(answer.status, Some(403), "{case}: {}", answer.body);
+    assert_eq!(answer.body, "", "{case}: the body is empty");
+    assert_eq!(answer.header(ORIGIN_HEADER), None, "{case}: no echo");
+    assert_eq!(answer.header("cache-control"), Some("no-store"), "{case}");
+    assert!(!answer.everything().contains(SECRET), "{case}: leaked");
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn a_request_without_the_origin_header_is_a_403() {
+    let _one = exclusive();
+    let addr = guarded_mock().await;
+    assert_refused(&get(addr, "/").await, "no header");
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn a_wrong_empty_or_partial_secret_is_a_403() {
+    let _one = exclusive();
+    let addr = guarded_mock().await;
+    let prefix = &SECRET[..SECRET.len() - 1];
+    let longer = format!("{SECRET}x");
+    let upper = SECRET.to_ascii_uppercase();
+    let values = [
+        ("wrong", "not_the_secret_at_all_"),
+        ("empty", ""),
+        ("a prefix", prefix),
+        ("longer", longer.as_str()),
+        ("other case", upper.as_str()),
+    ];
+    for (case, value) in values {
+        let answer = get_with(addr, "/", &[(ORIGIN_HEADER, value)]).await;
+        assert_refused(&answer, case);
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn two_origin_headers_are_a_403_even_when_one_is_right() {
+    let _one = exclusive();
+    let addr = guarded_mock().await;
+    for pair in [
+        [(ORIGIN_HEADER, SECRET), (ORIGIN_HEADER, "other")],
+        [(ORIGIN_HEADER, "other"), (ORIGIN_HEADER, SECRET)],
+        [(ORIGIN_HEADER, SECRET), (ORIGIN_HEADER, SECRET)],
+    ] {
+        assert_refused(&get_with(addr, "/", &pair).await, "two headers");
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_right_secret_gets_the_page_and_the_server_function() {
+    let _one = exclusive();
+    let addr = guarded_mock().await;
+    let header = [(ORIGIN_HEADER, SECRET)];
+    let page = get_with(addr, "/?q=mindfulness", &header).await;
+    assert_eq!(page.status, Some(200), "{}", page.body);
+    assert!(page.body.contains("MN 10"), "{}", page.body);
+    let answer = post_form_with(addr, "/api/search_passages", &form("mindfulness"), &header).await;
+    assert_eq!(answer.status, Some(200), "{}", answer.body);
+    assert!(answer.body.contains("mn10"), "{}", answer.body);
+    let missing = get_with(addr, "/no/such/page", &header).await;
+    assert_eq!(missing.status, Some(404), "the guard lets the 404 through");
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn a_search_without_the_header_asks_the_api_nothing() {
+    let _one = exclusive();
+    let api = MockApi::start(vec![Reply::hits()]).await;
+    let origin = Origin::Checked(OriginSecret::new(SECRET));
+    let addr = serve_with(real(&api), origin).await;
+    let answer = post_form_with(addr, "/api/search_passages", &form("metta"), &[]).await;
+    assert_refused(&answer, "server function");
+    let page = get(addr, "/?q=metta").await;
+    assert_refused(&page, "search page");
+    assert_eq!(api.calls(), 0, "zero calls to the API");
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_static_files_and_unknown_paths_are_refused_too() {
+    let _one = exclusive();
+    let addr = guarded_mock().await;
+    for path in [
+        "/pkg/search-front.js",
+        "/pkg/search-front.wasm",
+        "/favicon.ico",
+        "/no/such/page",
+        "/api/search_passages",
+        "/api/unknown",
+    ] {
+        assert_refused(&get(addr, path).await, path);
+    }
+}
+
+/// Pair: guard x body limit. Without the header an oversized body is a 403,
+/// with it the limit answers as before (a 500, zero calls to the API).
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_guard_comes_before_the_body_limit() {
+    let _one = exclusive();
+    let api = MockApi::start(vec![Reply::hits()]).await;
+    let origin = Origin::Checked(OriginSecret::new(SECRET));
+    let addr = serve_with(real(&api), origin).await;
+    let huge = form(&"a".repeat(64 * 1024));
+    let refused = post_form_with(addr, "/api/search_passages", &huge, &[]).await;
+    assert_eq!(refused.status, Some(403), "{}", refused.body);
+    let header = [(ORIGIN_HEADER, SECRET)];
+    let limited = post_form_with(addr, "/api/search_passages", &huge, &header).await;
+    assert_eq!(limited.status, Some(500), "{}", limited.body);
+    assert_eq!(api.calls(), 0, "the API never saw either");
+}
+
+/// Pair: guard x token. A page served to the right header holds neither the
+/// API token nor the origin secret.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_page_holds_neither_the_api_token_nor_the_origin_secret() {
+    let _one = exclusive();
+    let api = MockApi::start(vec![Reply::hits(), Reply::hits()]).await;
+    let origin = Origin::Checked(OriginSecret::new(SECRET));
+    let addr = serve_with(real(&api), origin).await;
+    let header = [(ORIGIN_HEADER, SECRET)];
+    let page = get_with(addr, "/?q=metta", &header).await;
+    assert_eq!(page.status, Some(200), "{}", page.body);
+    let answer = post_form_with(addr, "/api/search_passages", &form("metta"), &header).await;
+    assert_eq!(answer.status, Some(200), "{}", answer.body);
+    for (what, text) in [("page", page.everything()), ("fn", answer.everything())] {
+        assert!(!text.contains(CANARY), "{what}: API token leaked");
+        assert!(!text.contains(SECRET), "{what}: origin secret leaked");
+    }
+}
+
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn an_open_origin_checks_nothing() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    let page = get(addr, "/").await;
+    assert_eq!(page.status, Some(200), "{}", page.body);
 }

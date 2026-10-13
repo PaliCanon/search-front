@@ -1,2 +1,7 @@
 /target
 .a2m/
+
+# tofu (infra/): providers, local state and per-environment variable files
+infra/.terraform/
+infra/*.tfstate*
+infra/*.tfvars

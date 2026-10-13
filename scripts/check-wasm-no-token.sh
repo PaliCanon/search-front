@@ -7,11 +7,28 @@
 # or one of its sentinel queries (`__search_front_mock_*__`) in the bundle
 # means the mock is compiled into the WASM (review 005, Δ1).
 #
+# It also fails on anything shaped like a PaliCanon API token, `pc_dev_` or
+# `pc_prod_` + 43 base62 characters: the shape is the one line of
+# `scripts/token-pattern` (what the API's `scripts/token` issues), read by
+# this script and by `rollout-check.sh`. Only the file and "token shape"
+# are printed, never the bytes.
+#
 # Run after `cargo leptos build` from the repository root:
 #   scripts/check-wasm-no-token.sh [canary]
 # Exit 0: clean. Exit 1: a hit (the file and the needle are printed, never
-# the surrounding bytes). Exit 2: nothing to check (no built bundle).
+# the surrounding bytes). Exit 2: nothing to check (no built bundle, or no
+# token-pattern).
 set -uo pipefail
+# Binary files: bytes, not characters (BSD grep refuses invalid UTF-8).
+export LC_ALL=C
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+pattern_file="$here/token-pattern"
+if [ ! -s "$pattern_file" ]; then
+  echo "check-wasm-no-token: no token-pattern next to this script" >&2
+  exit 2
+fi
+token_pattern="$(head -n 1 "$pattern_file")"
 
 pkg="${PKG_DIR:-target/site/pkg}"
 needles=(
@@ -45,9 +62,13 @@ for f in "${files[@]}"; do
       status=1
     fi
   done
+  if grep -aEq -- "$token_pattern" "$f"; then
+    echo "check-wasm-no-token: token shape found in $f" >&2
+    status=1
+  fi
 done
 
 if [ "$status" -eq 0 ]; then
-  echo "check-wasm-no-token: ${#files[@]} files, no token, no api client"
+  echo "check-wasm-no-token: ${#files[@]} files, no token, no token shape, no api client"
 fi
 exit "$status"

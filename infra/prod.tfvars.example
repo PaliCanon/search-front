@@ -1,0 +1,17 @@
+# The second apply, once dev has deployed from CI and been checked:
+#   tofu apply -var-file=prod.tfvars   (copy this file to prod.tfvars)
+# `envs` is replaced as a whole, so dev is listed again. Prod has its own
+# API token and its own origin secret (README, "Prod"): create both before
+# the apply that stands the service up.
+envs = {
+  dev = {
+    host          = "search-dev.palicanon.app"
+    max_instances = 2
+    api_url       = "https://api-dev.palicanon.app"
+  }
+  prod = {
+    host          = "search.palicanon.app"
+    max_instances = 3
+    api_url       = "https://api.palicanon.app"
+  }
+}

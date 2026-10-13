@@ -16,6 +16,8 @@ pub mod boot;
 mod catalogue;
 mod components;
 mod highlight;
+#[cfg(feature = "ssr")]
+pub mod origin;
 pub(crate) mod page;
 mod pages;
 #[cfg(feature = "ssr")]

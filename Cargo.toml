@@ -5,6 +5,9 @@ members = ["app"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
+# The API client and its types need 1.91 (Duration::from_mins, let chains) and
+# so does `uuid` 1.89: the lowest toolchain the msrv job (ci.yml) checks.
+rust-version = "1.91"
 license = "CC-BY-NC-4.0"
 repository = "https://github.com/PaliCanon/search-front"
 

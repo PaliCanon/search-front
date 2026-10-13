@@ -32,6 +32,25 @@ pub(crate) fn branch_and_sha(branch: Option<String>, sha: Option<String>) -> (St
     }
 }
 
+/// The badge's `env` and `sha` from the build's environment
+/// (`BUILD_BRANCH`, `BUILD_SHA`), for a build with no `.git` (the image):
+/// `Some` only when both are present and not blank, since a half result is
+/// not trusted (as in [`branch_and_sha`]). The sha is cut to the short form
+/// (7 characters) so a full commit hash fits the badge; no dirty marker, the
+/// values are given, not found.
+pub(crate) fn env_override(
+    branch: Option<String>,
+    sha: Option<String>,
+) -> Option<(String, String)> {
+    let branch = branch
+        .map(|b| b.trim().to_string())
+        .filter(|b| !b.is_empty())?;
+    let sha = sha
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())?;
+    Some((display_branch(&branch), sha.chars().take(7).collect()))
+}
+
 /// Whether `git status --porcelain`'s raw stdout means the worktree had
 /// uncommitted changes (tracked or not) at build time.
 pub(crate) fn is_dirty_output(raw: &[u8]) -> bool {
@@ -120,6 +139,67 @@ mod tests {
             branch_and_sha(Some("main".to_string()), None),
             ("unknown".to_string(), "unknown".to_string())
         );
+    }
+
+    #[allow(clippy::unnecessary_wraps)] // reads as the `Option` the environment gives
+    fn some(text: &str) -> Option<String> {
+        Some(text.to_string())
+    }
+
+    #[test]
+    fn a_branch_and_a_sha_from_the_environment_are_used() {
+        assert_eq!(
+            env_override(some("main"), some("a1b2c3f")),
+            Some(("main".to_string(), "a1b2c3f".to_string()))
+        );
+    }
+
+    #[test]
+    fn an_environment_branch_is_shown_like_git_s() {
+        assert_eq!(
+            env_override(some("HEAD"), some("a1b2c3f")),
+            Some(("detached".to_string(), "a1b2c3f".to_string()))
+        );
+        assert_eq!(
+            env_override(some("v0.1.0"), some("a1b2c3f")),
+            Some(("v0.1.0".to_string(), "a1b2c3f".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_full_commit_hash_is_cut_to_seven_characters() {
+        let full = "0123456789abcdef0123456789abcdef01234567";
+        assert_eq!(
+            env_override(some("main"), some(full)),
+            Some(("main".to_string(), "0123456".to_string()))
+        );
+        assert_eq!(
+            env_override(some("main"), some("abc")),
+            Some(("main".to_string(), "abc".to_string())),
+            "a shorter sha is kept"
+        );
+    }
+
+    #[test]
+    fn the_environment_values_are_trimmed() {
+        assert_eq!(
+            env_override(some(" main\n"), some("\ta1b2c3f \n")),
+            Some(("main".to_string(), "a1b2c3f".to_string()))
+        );
+    }
+
+    #[test]
+    fn one_environment_value_alone_is_ignored() {
+        assert_eq!(env_override(some("main"), None), None);
+        assert_eq!(env_override(None, some("a1b2c3f")), None);
+        assert_eq!(env_override(None, None), None);
+    }
+
+    #[test]
+    fn a_blank_environment_value_is_ignored() {
+        assert_eq!(env_override(some(""), some("a1b2c3f")), None);
+        assert_eq!(env_override(some("main"), some("  ")), None);
+        assert_eq!(env_override(some("\n"), some("\t")), None);
     }
 
     #[test]

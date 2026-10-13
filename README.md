@@ -58,8 +58,33 @@ mock's three sentinel queries (`__search_front_mock_*__`) and the canary
 given as its argument (a token planted for the check); it exits 1 on a hit
 and 2 when there is no bundle to check.
 
-The same run in CI (`.github/workflows/ci.yml`). Functions stay under 50
-lines (`clippy.toml`).
+The same run in CI (`.github/workflows/ci.yml`), plus: `cargo check
+--locked` on Rust 1.91 (the MSRV: the API client needs it), coverage, the
+bundle check above, the deploy's own tests and `tofu fmt`/`validate`:
+
+```sh
+bash scripts/manifest-ref.test.sh      # the ref a manifest names for a git dependency
+python3 scripts/check_workflows_test.py && python3 scripts/check_workflows.py
+bash infra/scripts/origin-secret.test.sh
+node --test infra/worker/              # the Worker
+(cd infra && tofu fmt -check -recursive && tofu init -backend=false && tofu validate)
+```
+
+Functions stay under 50 lines (`clippy.toml`).
+
+## Deploy
+
+`main` deploys `search-dev.palicanon.app`, a `v*` tag deploys
+`search.palicanon.app` (`.github/workflows/deploy.yml`, the model is
+learn-pali's). Cloudflare (a Worker per host) is the only way in: the service
+answers 403 to any request without the Worker's `x-origin-auth` secret, so the
+`*.run.app` URL is closed. The image is built with **no credential**
+(`Dockerfile`): ui-lib and the API client are COPYed as sibling checkouts, and
+`Cargo.lock` holds no git source. CI's three checkouts (this repository,
+`ui-lib`, `api`) use a GitHub App token (`.github/actions/siblings`); the
+repository secrets are `APP_ID` and `APP_PRIVATE_KEY`, the variables
+`WIF_PROVIDER`, `DEPLOYER_SA` and `GCP_PROJECT`. The infrastructure, the
+Worker and the ordered first-time commands are in `infra/README.md`.
 
 ## What it never holds
 
