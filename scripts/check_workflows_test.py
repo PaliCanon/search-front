@@ -541,6 +541,37 @@ class NodeTestArguments(unittest.TestCase):
         self.assertIn("node --test 'infra/worker/*.test.mjs'", text)
 
 
+class SiblingsForCargo(unittest.TestCase):
+    """Task 007 F4: the fmt job ran `cargo fmt --all --check` without the
+    sibling checkouts; rustfmt follows `app/build.rs`'s `#[path]` into
+    `../../ui-lib/build/placeholders.rs` and failed. Every job that runs
+    cargo has the `siblings` action."""
+
+    JOB = (
+        "name: ci\non: push\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: x\n    steps:\n"
+        "      - uses: actions/checkout@v7\n        with:\n          persist-credentials: false\n%s"
+    )
+
+    def found(self, steps):
+        return violations(extra={"ci.yml": self.JOB % steps})
+
+    def test_a_cargo_job_without_the_siblings_is_refused(self):
+        found = self.found("      - run: cargo fmt --all --check\n")
+        self.assertTrue(any("siblings" in v and "j" in v for v in found), found)
+
+    def test_a_cargo_job_with_the_siblings_passes(self):
+        steps = "      - uses: ./search-front/.github/actions/siblings\n      - run: cargo fmt --all --check\n"
+        self.assertEqual(self.found(steps), [])
+
+    def test_a_job_without_cargo_needs_no_siblings(self):
+        self.assertEqual(self.found("      - run: node --test 'infra/worker/*.test.mjs'\n"), [])
+
+    def test_the_fmt_job_of_ci_has_the_siblings(self):
+        text = (pathlib.Path(__file__).resolve().parent.parent / ".github/workflows/ci.yml").read_text()
+        fmt = parse(text)["jobs"]["fmt"]
+        self.assertTrue(any(str(step.get("uses", "")).endswith("/siblings") for step in fmt["steps"]))
+
+
 class Loading(unittest.TestCase):
     def test_a_file_that_does_not_parse_is_reported_not_raised(self):
         import tempfile

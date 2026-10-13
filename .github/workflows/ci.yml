@@ -35,6 +35,12 @@ jobs:
         with:
           path: search-front
           persist-credentials: false
+      # rustfmt walks the modules, `#[path]` ones included: app/build.rs includes
+      # ../../ui-lib/build/placeholders.rs, so fmt needs the siblings too.
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
