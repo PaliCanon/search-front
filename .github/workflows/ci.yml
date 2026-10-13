@@ -200,7 +200,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test infra/worker/
+      # A quoted glob, not the directory: node 22 (the job's) runs a directory
+      # argument as a module and fails with "Cannot find module" (node 26 on a
+      # laptop walks it, which hid it).
+      - run: node --test 'infra/worker/*.test.mjs'
 
   tofu:
     name: tofu (fmt, validate)

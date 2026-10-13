@@ -14,6 +14,8 @@ Rules:
 - every `uses:` names a version (`@...`), local actions apart;
 - every `actions/checkout` sets `persist-credentials: false` (the GitHub App
   token must not stay in `.git/config`);
+- `node --test` takes files or quoted globs, never a directory (node 22 runs
+  a directory as a module and fails with "Cannot find module", F3 of 007);
 - no `docker/build-push-action` takes `secrets:` or `ssh:` (the build needs
   no credential, ruling R1);
 - deploy.yml: a concurrency group per environment that never cancels a
@@ -73,11 +75,23 @@ def check_permissions(name, doc):
     return [f"{name}: permissions: `{scope}` is more than read (only id-token: write is allowed)" for scope in bad]
 
 
+def check_node_test(name, run):
+    """`node --test DIR` runs the directory as a module on node 22 (task 007
+    F3): the arguments must be files or quoted globs (node expands them)."""
+    found = []
+    for line in run.splitlines():
+        match = re.search(r"\bnode\s+--test\s+(\S+)", line)
+        if match and not (match.group(1)[0] in "'\"" or match.group(1).endswith((".mjs", ".js", ".cjs"))):
+            found.append(f"{name}: node --test: `{match.group(1)}` is a directory or an unquoted glob; node 22 runs it as a module (use a quoted glob or a file)")
+    return found
+
+
 def check_step(name, step):
     found = []
     run = step.get("run", "")
     if "secrets." in run:
         found.append(f"{name}: secret in a run line: {run.strip().splitlines()[0][:60]}")
+    found.extend(check_node_test(name, run))
     uses = step.get("uses", "")
     if uses and not uses.startswith("./") and "@" not in uses:
         found.append(f"{name}: `{uses}` names no version")

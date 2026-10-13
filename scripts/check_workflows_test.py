@@ -515,6 +515,32 @@ class RollbackOutcome(unittest.TestCase):
         self.assertTrue(any("exit" in v and "code" in v for v in found), found)
 
 
+class NodeTestArguments(unittest.TestCase):
+    """Task 007 F3: `node --test infra/worker/` passed on node 26 and failed
+    on the runner's node 22 ("Cannot find module .../infra/worker"): node 22
+    runs a directory argument as a module. The arguments are quoted globs."""
+
+    def found(self, command):
+        ci = "name: ci\non: push\npermissions:\n  contents: read\njobs:\n  j:\n    runs-on: x\n    steps:\n      - run: " + command + "\n"
+        return violations(extra={"ci.yml": ci})
+
+    def test_a_directory_argument_is_refused(self):
+        for command in ("node --test infra/worker/", "node --test infra/worker", "node --test ."):
+            found = self.found(command)
+            self.assertTrue(any("node --test" in v for v in found), (command, found))
+
+    def test_a_quoted_glob_passes(self):
+        self.assertEqual(self.found("node --test 'infra/worker/*.test.mjs'"), [])
+        self.assertEqual(self.found('node --test "infra/worker/*.test.mjs"'), [])
+
+    def test_a_file_passes(self):
+        self.assertEqual(self.found("node --test infra/worker/proxy.test.mjs"), [])
+
+    def test_the_ci_workflow_runs_the_worker_tests_by_glob(self):
+        text = (pathlib.Path(__file__).resolve().parent.parent / ".github/workflows/ci.yml").read_text()
+        self.assertIn("node --test 'infra/worker/*.test.mjs'", text)
+
+
 class Loading(unittest.TestCase):
     def test_a_file_that_does_not_parse_is_reported_not_raised(self):
         import tempfile
