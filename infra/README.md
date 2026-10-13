@@ -13,7 +13,7 @@ first, `prod` added later, see "Order"):
 | Secret `search-front-origin-secret-<env>` | `gcp.tf` | The value the Worker sends as `x-origin-auth` and the service requires. Same rule: no version in tofu; `scripts/origin-secret` makes it. |
 | The deployer's rights | `gcp.tf` | `github-deployer` is read as a data source (the site's infra owns it), never managed here. It may **act as** the runtime account and **read the origin secret** (see "R3"). |
 | Cloud Run service `search-front-<env>` | `gcp.tf` | min 0, max 2 (dev) / 3 (prod), 1 CPU, 512Mi, CPU only while a request is served, public at the Cloud Run layer. `SEARCH_API_URL` is a value; `SEARCH_API_TOKEN` and `ORIGIN_SECRET` come from the two secrets (`latest`, read when an instance starts). Startup probe: **TCP 8080** (see "R2"). |
-| A Worker relaying to Cloud Run | `cloudflare.tf`, `worker/proxy.js` | The Worker's `ORIGIN` is the Cloud Run URL and its `PUBLIC_ORIGIN` the host's own `https://` origin (the target of a rewritten `Location`, never the request's Host; both answer 500 when missing); it adds `x-origin-auth` from its secret `ORIGIN_AUTH` and answers 500 without it. Tested with `node --test infra/worker/`. |
+| A Worker relaying to Cloud Run | `cloudflare.tf`, `worker/proxy.js` | The Worker's `ORIGIN` is the Cloud Run URL and its `PUBLIC_ORIGIN` the host's own `https://` origin (the target of a rewritten `Location`, never the request's Host; both answer 500 when missing); it adds `x-origin-auth` from its secret `ORIGIN_AUTH` and answers 500 without it. Tested with `node --test 'infra/worker/*.test.mjs'`. |
 | A Workers Custom Domain per host | `cloudflare.tf` | `search-dev.palicanon.app` (dev), `search.palicanon.app` (prod, added later). Cloudflare creates the DNS record and the certificate. |
 | `scripts/origin-secret` | `scripts/` | `create`, `push`, `check` the origin secret; tested with stub `gcloud`/`curl` (`bash infra/scripts/origin-secret.test.sh`). |
 
@@ -92,7 +92,7 @@ Nothing here has been applied yet (task 007 wrote it, did not run it).
 
    ```sh
    gcloud auth application-default login
-   export CLOUDFLARE_API_TOKEN=$(security find-generic-password -a palicanon -s cloudflare-api-token -w)
+   export CLOUDFLARE_API_TOKEN=$(security find-generic-password -a lsh -s cloudflare-api-token -w)
    ```
 
 5. In `infra/`: `tofu init`, then a **targeted** apply of the two secrets,
