@@ -724,6 +724,10 @@ fn rollout_check_demands_a_secret_and_refuses_to_send_it_to_the_worker() {
     let _ = std::fs::remove_file(bad);
 }
 
+/// One `rollout-check.sh` run: its mode name, its arguments and its extra
+/// environment.
+type RolloutRun<'a> = (&'a str, Vec<&'a str>, Vec<(&'a str, &'a str)>);
+
 /// Task 007 F5: `rollout-check.sh` read `token-pattern` with an unguarded
 /// `head` as `smoke.sh` did before F1: a missing or empty pattern made
 /// `grep -E ''` match every response ("a token shape in the body of the root
@@ -751,7 +755,7 @@ fn rollout_check_refuses_a_missing_or_empty_token_pattern() {
         }
         let script = dir.join("rollout-check.sh");
         let url = fake.url();
-        let runs: [(&str, Vec<&str>, Vec<(&str, &str)>); 3] = [
+        let runs: [RolloutRun; 3] = [
             (
                 "direct",
                 vec![url.as_str()],
