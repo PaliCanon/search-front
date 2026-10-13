@@ -724,6 +724,60 @@ fn rollout_check_demands_a_secret_and_refuses_to_send_it_to_the_worker() {
     let _ = std::fs::remove_file(bad);
 }
 
+/// Task 007 F5: `rollout-check.sh` read `token-pattern` with an unguarded
+/// `head` as `smoke.sh` did before F1: a missing or empty pattern made
+/// `grep -E ''` match every response ("a token shape in the body of the root
+/// response" about a healthy page). It must exit 2 naming the file, in every
+/// mode, before any request.
+#[test]
+fn rollout_check_refuses_a_missing_or_empty_token_pattern() {
+    let fake = Fake::start(healthy);
+    for (case, pattern) in [
+        ("missing", None),
+        ("empty", Some("")),
+        ("a blank line", Some("\n")),
+        ("blanks", Some("  \n\n")),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "rollout-pattern-{}-{}",
+            std::process::id(),
+            case.replace(' ', "-")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        std::fs::copy(check_script(), dir.join("rollout-check.sh")).expect("copy the script");
+        if let Some(text) = pattern {
+            std::fs::write(dir.join("token-pattern"), text).expect("write token-pattern");
+        }
+        let script = dir.join("rollout-check.sh");
+        let url = fake.url();
+        let runs: [(&str, Vec<&str>, Vec<(&str, &str)>); 3] = [
+            (
+                "direct",
+                vec![url.as_str()],
+                vec![("ORIGIN_SECRET", SECRET)],
+            ),
+            ("worker", vec!["--via-worker", url.as_str()], vec![]),
+            ("refused", vec!["--refused", url.as_str()], vec![]),
+        ];
+        for (mode, args, env) in runs {
+            let out = run(&script, &args, &env);
+            let text = printed(&out);
+            assert_eq!(out.status.code(), Some(2), "{case}, {mode}: {text}");
+            assert!(
+                text.contains("token-pattern"),
+                "{case}, {mode}: names the file: {text}"
+            );
+            assert!(
+                !text.contains("FAIL token"),
+                "{case}, {mode}: must not blame a response: {text}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    assert_eq!(fake.seen.lock().expect("lock").len(), 0, "nothing was sent");
+}
+
 #[test]
 fn rollout_check_refused_mode_fails_on_a_server_that_answers() {
     let open = Fake::start(|r| {

@@ -20,7 +20,7 @@
 # 200 with a result list: a live call to the API), `token` (no token shape —
 # scripts/token-pattern — in the bodies and headers of / and the search),
 # `guard` (without the header, or with a wrong one: 403), `refused`.
-# Exit 0 all good, 1 a check failed (named), 2 usage, 3 Cloudflare answered
+# Exit 0 all good, 1 a check failed (named), 2 usage (or no usable token-pattern beside the script), 3 Cloudflare answered
 # with a challenge (cf-mitigated): the runner is not allowed, which says
 # nothing about the service. 4 (--via-worker only) the Worker itself answered
 # 500 — "The origin secret is not configured.", "The origin is not
@@ -32,7 +32,16 @@ set -uo pipefail
 export LC_ALL=C
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-token_pattern="$(head -n 1 "$here/token-pattern")"
+# A missing, empty or blank pattern would make `grep -E ''` match every
+# response (task 007 F5, as smoke.sh F1): a usage error, before any request.
+token_pattern=""
+if [ -r "$here/token-pattern" ]; then
+  token_pattern="$(head -n 1 "$here/token-pattern")"
+fi
+if [ -z "${token_pattern//[[:space:]]/}" ]; then
+  echo "rollout-check: no token-pattern next to this script ($here/token-pattern is missing or empty)" >&2
+  exit 2
+fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
