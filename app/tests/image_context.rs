@@ -419,3 +419,41 @@ fn the_builder_exports_the_build_branch_and_sha_before_the_build() {
         );
     }
 }
+
+/// Task 007 F1: `scripts/smoke.sh` reads `token-pattern` from its own folder.
+/// The runtime stage once copied `smoke.sh` alone, so the last RUN of the
+/// image build ran without the pattern. Whatever stage runs `smoke.sh` must
+/// hold `token-pattern` in the same folder: the builder stage hands both to
+/// `/out`, and the runtime stage copies both into one destination.
+#[test]
+fn the_runtime_stage_holds_the_token_pattern_beside_smoke_sh() {
+    let mut stage = String::new();
+    let mut smoke_copies = 0;
+    for instruction in instructions(&dockerfile()) {
+        if let Some(from) = instruction.strip_prefix("FROM ") {
+            stage = from
+                .split_whitespace()
+                .last()
+                .unwrap_or_default()
+                .to_string();
+        }
+        if stage == "builder" && instruction.contains("cp ") && instruction.contains("smoke.sh") {
+            assert!(
+                instruction.contains("token-pattern"),
+                "the builder hands smoke.sh to /out without token-pattern: {instruction}"
+            );
+        }
+        if stage != "builder"
+            && stage != "tools"
+            && instruction.starts_with("COPY --from=builder")
+            && instruction.contains("smoke.sh")
+        {
+            smoke_copies += 1;
+            assert!(
+                instruction.contains("/out/token-pattern"),
+                "the runtime stage copies smoke.sh without token-pattern: {instruction}"
+            );
+        }
+    }
+    assert_eq!(smoke_copies, 1, "the runtime stage copies smoke.sh once");
+}

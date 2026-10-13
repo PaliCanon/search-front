@@ -82,13 +82,14 @@ RUN cargo leptos build --release --cargo-locked \
     && mkdir /out \
     && cp target/release/search_front /out/ \
     && cp -r target/site /out/site \
-    && cp scripts/smoke.sh /out/
+    && cp scripts/smoke.sh scripts/token-pattern /out/
 
 # ---------------------------------------------------------------- runtime
 FROM debian:bookworm-slim
 RUN useradd --system --uid 10001 --home /nonexistent --shell /usr/sbin/nologin app
 WORKDIR /app
-COPY --from=builder --chown=app:app /out/search_front /out/smoke.sh ./
+# smoke.sh reads token-pattern from its own folder: they travel together.
+COPY --from=builder --chown=app:app /out/search_front /out/smoke.sh /out/token-pattern ./
 # site/ is LEPTOS_SITE_ROOT. The bundle is not hash-named (the workspace sets
 # no `hash-files`): there is no hash.txt to ship.
 COPY --from=builder --chown=app:app /out/site ./site
