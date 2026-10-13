@@ -121,7 +121,7 @@ STUB_VERSIONS=1 run check dev
 check "check: OK when the version, the Worker's secret and the host agree" test "$code" -eq 0
 check "check: prints OK" out_is_ok
 check "check: prints no value" no_value_anywhere
-check "check: asks the dev host" grep -q 'https://search-dev.palicanon.app/' "$log/curl.argv"
+check "check: asks the dev host" grep -q 'https://search.dev.palicanon.app/' "$log/curl.argv"
 
 reset
 STUB_VERSIONS="" run check dev

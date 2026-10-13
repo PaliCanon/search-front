@@ -20,9 +20,9 @@ variable "cloudflare_account_id" {
   default = "c0690c72f1b7c85737052c3a9ebac154"
 }
 
-# One entry per environment. The dev host is search-dev.palicanon.app: one
-# level under the zone, inside Universal SSL's `*.palicanon.app`; it is
-# served by a Workers Custom Domain all the same (cloudflare.tf), as
+# One entry per environment. The dev host is search.dev.palicanon.app: two
+# levels deep, served by a Workers Custom Domain which
+# issues the exact host's certificate (cloudflare.tf), as
 # learn-pali's. `api_url` is the PaliCanon API this environment searches
 # through (`SEARCH_API_URL`). Changing a host is an edit here and a tofu apply.
 #
@@ -38,7 +38,7 @@ variable "envs" {
   }))
   default = {
     dev = {
-      host          = "search-dev.palicanon.app"
+      host          = "search.dev.palicanon.app"
       max_instances = 2
       api_url       = "https://api-dev.palicanon.app"
     }

@@ -198,6 +198,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyyaml
+      - run: python3 scripts/infra_probe_test.py
       - run: python3 scripts/check_workflows_test.py
       - run: python3 scripts/check_workflows.py
       - run: bash scripts/manifest-ref.test.sh

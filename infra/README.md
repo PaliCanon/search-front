@@ -14,7 +14,7 @@ first, `prod` added later, see "Order"):
 | The deployer's rights | `gcp.tf` | `github-deployer` is read as a data source (the site's infra owns it), never managed here. It may **act as** the runtime account and **read the origin secret** (see "R3"). |
 | Cloud Run service `search-front-<env>` | `gcp.tf` | min 0, max 2 (dev) / 3 (prod), 1 CPU, 512Mi, CPU only while a request is served, public at the Cloud Run layer. `SEARCH_API_URL` is a value; `SEARCH_API_TOKEN` and `ORIGIN_SECRET` come from the two secrets (`latest`, read when an instance starts). Startup probe: **TCP 8080** (see "R2"). |
 | A Worker relaying to Cloud Run | `cloudflare.tf`, `worker/proxy.js` | The Worker's `ORIGIN` is the Cloud Run URL and its `PUBLIC_ORIGIN` the host's own `https://` origin (the target of a rewritten `Location`, never the request's Host; both answer 500 when missing); it adds `x-origin-auth` from its secret `ORIGIN_AUTH` and answers 500 without it. Tested with `node --test 'infra/worker/*.test.mjs'`. |
-| A Workers Custom Domain per host | `cloudflare.tf` | `search-dev.palicanon.app` (dev), `search.palicanon.app` (prod, added later). Cloudflare creates the DNS record and the certificate. |
+| A Workers Custom Domain per host | `cloudflare.tf` | `search.dev.palicanon.app` (dev), `search.palicanon.app` (prod, added later). Cloudflare creates the DNS record and the certificate. |
 | `scripts/origin-secret` | `scripts/` | `create`, `push`, `check` the origin secret; tested with stub `gcloud`/`curl` (`bash infra/scripts/origin-secret.test.sh`). |
 
 CI owns the image: tofu ignores `image`, `scaling`, `client` and
@@ -71,7 +71,7 @@ short window in which the two disagree.
 ## Order: dev first, prod later
 
 `var.envs` holds **dev only** by default. The first apply therefore stands up
-`search-front-dev` and `search-dev.palicanon.app` and nothing public in prod.
+`search-front-dev` and `search.dev.palicanon.app` and nothing public in prod.
 
 ## Only the user, in order (dev; prod repeats 5-10 later)
 
@@ -138,7 +138,7 @@ Nothing here has been applied yet (task 007 wrote it, did not run it).
    ```
 
 10. Push `search-front` main: `deploy.yml` rolls dev; look at
-    https://search-dev.palicanon.app.
+    https://search.dev.palicanon.app.
 
 The services start with the **bootstrap image**
 (`us-docker.pkg.dev/cloudrun/container/hello`, `var.bootstrap_image`), which
@@ -178,7 +178,7 @@ then deploys the real image.
   Declaring the secret in tofu (`cloudflare_workers_secret`) would put the
   value in the state: ruled out.
 - **R6, Bot Fight.** The check from a GitHub runner to
-  `search-dev.palicanon.app` after traffic can meet Cloudflare's Bot Fight
+  `search.dev.palicanon.app` after traffic can meet Cloudflare's Bot Fight
   Mode or a managed challenge (HTTP 403 with `cf-mitigated: challenge`). The
   script tells it from the service's own 403 (empty body, no `cf-mitigated`).
   If it happens, the decision is the user's: a WAF skip rule for the runner,
@@ -186,9 +186,9 @@ then deploys the real image.
 
 ## Not done here
 
-- **Cloudflare Access on dev.** Like learn-pali's, `search-dev.palicanon.app`
+- **Cloudflare Access on dev.** Like learn-pali's, `search.dev.palicanon.app`
   is public until an Access application is added for it (dashboard, or tofu
   once the token has the Access scope). The origin rule keeps the Cloud Run
   URL closed; Access would gate the visitors.
-- The hosts (`search-dev.palicanon.app`, `search.palicanon.app`) are the
+- The hosts (`search.dev.palicanon.app`, `search.palicanon.app`) are the
   user's (2026-10-11).

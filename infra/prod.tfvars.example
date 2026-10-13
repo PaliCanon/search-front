@@ -5,7 +5,7 @@
 # the apply that stands the service up.
 envs = {
   dev = {
-    host          = "search-dev.palicanon.app"
+    host          = "search.dev.palicanon.app"
     max_instances = 2
     api_url       = "https://api-dev.palicanon.app"
   }

@@ -74,7 +74,7 @@ Functions stay under 50 lines (`clippy.toml`).
 
 ## Deploy
 
-`main` deploys `search-dev.palicanon.app`, a `v*` tag deploys
+`main` deploys `search.dev.palicanon.app`, a `v*` tag deploys
 `search.palicanon.app` (`.github/workflows/deploy.yml`, the model is
 learn-pali's). Cloudflare (a Worker per host) is the only way in: the service
 answers 403 to any request without the Worker's `x-origin-auth` secret, so the

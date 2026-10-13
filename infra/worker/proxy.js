@@ -1,4 +1,4 @@
-// search.palicanon.app / search-dev.palicanon.app → search-front on Cloud Run.
+// search.palicanon.app / search.dev.palicanon.app → search-front on Cloud Run.
 //
 // Cloudflare is the front door (WAF, rate limits per IP); this relays the
 // request as is — method, headers, body — to ORIGIN, the Cloud Run URL, and

@@ -31,7 +31,7 @@ permissions:
 
 env:
   ENV: ${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
-  HOST: ${{ startsWith(github.ref, 'refs/tags/') && 'search.palicanon.app' || 'search-dev.palicanon.app' }}
+  HOST: ${{ startsWith(github.ref, 'refs/tags/') && 'search.palicanon.app' || 'search.dev.palicanon.app' }}
   REGION: europe-west1
   PROJECT: ${{ vars.GCP_PROJECT }}
 

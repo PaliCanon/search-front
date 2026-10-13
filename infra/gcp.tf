@@ -145,9 +145,11 @@ resource "google_cloud_run_v2_service" "app" {
           port = 8080
         }
         # The margin covers a slow image pull on a cold start.
-        period_seconds    = 2
+        # period_seconds × failure_threshold = 60 s for a cold pull.
+        # gcloud requires timeout_seconds < period_seconds.
+        period_seconds    = 5
         timeout_seconds   = 3
-        failure_threshold = 30
+        failure_threshold = 12
       }
     }
   }

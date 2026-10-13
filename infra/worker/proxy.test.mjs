@@ -9,7 +9,7 @@ import { afterEach, test } from "node:test";
 import worker from "./proxy.js";
 
 const ORIGIN = "https://search-front-dev-abc123-ew.a.run.app";
-const PUBLIC_ORIGIN = "https://search-dev.palicanon.app";
+const PUBLIC_ORIGIN = "https://search.dev.palicanon.app";
 const SECRET = "origin-secret-for-tests-0123456789abcdef";
 const realFetch = globalThis.fetch;
 
@@ -31,7 +31,7 @@ const env = (extra = {}) => ({ ORIGIN, PUBLIC_ORIGIN, ORIGIN_AUTH: SECRET, ...ex
 
 test("adds x-origin-auth from the secret on every relayed request", async () => {
   const calls = stubFetch();
-  await worker.fetch(new Request("https://search-dev.palicanon.app/?q=sati"), env());
+  await worker.fetch(new Request("https://search.dev.palicanon.app/?q=sati"), env());
   assert.equal(calls.length, 1);
   assert.equal(calls[0].init.headers.get("x-origin-auth"), SECRET);
   assert.equal(calls[0].url, `${ORIGIN}/?q=sati`);
@@ -39,7 +39,7 @@ test("adds x-origin-auth from the secret on every relayed request", async () => 
 
 test("overwrites an x-origin-auth sent by the client", async () => {
   const calls = stubFetch();
-  const request = new Request("https://search-dev.palicanon.app/", {
+  const request = new Request("https://search.dev.palicanon.app/", {
     headers: { "x-origin-auth": "guess" },
   });
   await worker.fetch(request, env());
@@ -48,7 +48,7 @@ test("overwrites an x-origin-auth sent by the client", async () => {
 
 test("answers 500 and calls nothing when the secret is absent", async () => {
   const calls = stubFetch();
-  const response = await worker.fetch(new Request("https://search-dev.palicanon.app/"), {
+  const response = await worker.fetch(new Request("https://search.dev.palicanon.app/"), {
     ORIGIN,
   });
   assert.equal(response.status, 500);
@@ -59,7 +59,7 @@ test("answers 500 and calls nothing when the secret is blank", async () => {
   for (const blank of ["", "   ", "\n"]) {
     const calls = stubFetch();
     const response = await worker.fetch(
-      new Request("https://search-dev.palicanon.app/"),
+      new Request("https://search.dev.palicanon.app/"),
       env({ ORIGIN_AUTH: blank }),
     );
     assert.equal(response.status, 500, JSON.stringify(blank));
@@ -70,7 +70,7 @@ test("answers 500 and calls nothing when the secret is blank", async () => {
 test("the 500 holds no secret, no origin and is not cached", async () => {
   stubFetch();
   const response = await worker.fetch(
-    new Request("https://search-dev.palicanon.app/"),
+    new Request("https://search.dev.palicanon.app/"),
     env({ ORIGIN_AUTH: "" }),
   );
   const body = await response.text();
@@ -81,35 +81,35 @@ test("the 500 holds no secret, no origin and is not cached", async () => {
 
 test("a secret with a trailing newline is sent trimmed", async () => {
   const calls = stubFetch();
-  await worker.fetch(new Request("https://search-dev.palicanon.app/"), env({ ORIGIN_AUTH: `${SECRET}\n` }));
+  await worker.fetch(new Request("https://search.dev.palicanon.app/"), env({ ORIGIN_AUTH: `${SECRET}\n` }));
   assert.equal(calls[0].init.headers.get("x-origin-auth"), SECRET);
 });
 
 test("deletes host and sets x-forwarded-host", async () => {
   const calls = stubFetch();
-  const request = new Request("https://search-dev.palicanon.app/", { headers: { host: "evil.example" } });
+  const request = new Request("https://search.dev.palicanon.app/", { headers: { host: "evil.example" } });
   await worker.fetch(request, env());
   const headers = calls[0].init.headers;
   assert.equal(headers.get("host"), null);
-  assert.equal(headers.get("x-forwarded-host"), "search-dev.palicanon.app");
+  assert.equal(headers.get("x-forwarded-host"), "search.dev.palicanon.app");
 });
 
 test("rewrites a Location to the run.app origin onto the public host", async () => {
   stubFetch(() => new Response(null, { status: 302, headers: { location: `${ORIGIN}/?q=x` } }));
-  const response = await worker.fetch(new Request("https://search-dev.palicanon.app/old"), env());
+  const response = await worker.fetch(new Request("https://search.dev.palicanon.app/old"), env());
   assert.equal(response.status, 302);
-  assert.equal(response.headers.get("location"), "https://search-dev.palicanon.app/?q=x");
+  assert.equal(response.headers.get("location"), "https://search.dev.palicanon.app/?q=x");
 });
 
 test("leaves a Location elsewhere untouched", async () => {
   stubFetch(() => new Response(null, { status: 302, headers: { location: "https://example.org/x" } }));
-  const response = await worker.fetch(new Request("https://search-dev.palicanon.app/old"), env());
+  const response = await worker.fetch(new Request("https://search.dev.palicanon.app/old"), env());
   assert.equal(response.headers.get("location"), "https://example.org/x");
 });
 
 test("relays the body of a POST, and none for a GET", async () => {
   const calls = stubFetch();
-  const post = new Request("https://search-dev.palicanon.app/api/search_passages", {
+  const post = new Request("https://search.dev.palicanon.app/api/search_passages", {
     method: "POST",
     body: "q=sati",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -117,13 +117,13 @@ test("relays the body of a POST, and none for a GET", async () => {
   await worker.fetch(post, env());
   assert.equal(calls[0].init.method, "POST");
   assert.equal(await new Response(calls[0].init.body).text(), "q=sati");
-  await worker.fetch(new Request("https://search-dev.palicanon.app/"), env());
+  await worker.fetch(new Request("https://search.dev.palicanon.app/"), env());
   assert.equal(calls[1].init.body, undefined);
 });
 
 test("does not follow redirects (the browser does, on the public host)", async () => {
   const calls = stubFetch();
-  await worker.fetch(new Request("https://search-dev.palicanon.app/"), env());
+  await worker.fetch(new Request("https://search.dev.palicanon.app/"), env());
   assert.equal(calls[0].init.redirect, "manual");
 });
 
@@ -134,7 +134,7 @@ test("does not rewrite a Location whose host only starts with the origin", async
     `${ORIGIN}:8443/x`,
   ]) {
     stubFetch(() => new Response(null, { status: 302, headers: { location } }));
-    const response = await worker.fetch(new Request("https://search-dev.palicanon.app/old"), env());
+    const response = await worker.fetch(new Request("https://search.dev.palicanon.app/old"), env());
     assert.equal(response.headers.get("location"), location, location);
   }
 });
@@ -143,16 +143,16 @@ test("rewrites a same-origin Location and keeps its path, query and fragment", a
   stubFetch(
     () => new Response(null, { status: 301, headers: { location: `${ORIGIN}/sutta/mn1?lang=en#top` } }),
   );
-  const response = await worker.fetch(new Request("https://search-dev.palicanon.app/old"), env());
+  const response = await worker.fetch(new Request("https://search.dev.palicanon.app/old"), env());
   assert.equal(response.status, 301);
-  assert.equal(response.headers.get("location"), "https://search-dev.palicanon.app/sutta/mn1?lang=en#top");
+  assert.equal(response.headers.get("location"), "https://search.dev.palicanon.app/sutta/mn1?lang=en#top");
 });
 
 test("a relative Location stays on the public host", async () => {
   stubFetch(() => new Response(null, { status: 302, headers: { location: "/search?q=sati" } }));
-  const response = await worker.fetch(new Request("https://search-dev.palicanon.app/old"), env());
-  const next = new URL(response.headers.get("location"), "https://search-dev.palicanon.app/old");
-  assert.equal(next.origin, "https://search-dev.palicanon.app");
+  const response = await worker.fetch(new Request("https://search.dev.palicanon.app/old"), env());
+  const next = new URL(response.headers.get("location"), "https://search.dev.palicanon.app/old");
+  assert.equal(next.origin, "https://search.dev.palicanon.app");
   assert.equal(next.pathname + next.search, "/search?q=sati");
 });
 
@@ -160,7 +160,7 @@ test("answers 500 and calls nothing when ORIGIN is missing or not a URL", async 
   for (const bad of [undefined, "", "not a url"]) {
     const calls = stubFetch();
     const response = await worker.fetch(
-      new Request("https://search-dev.palicanon.app/"),
+      new Request("https://search.dev.palicanon.app/"),
       { ORIGIN: bad, ORIGIN_AUTH: SECRET },
     );
     assert.equal(response.status, 500, String(bad));
@@ -181,7 +181,7 @@ test("refuses an http: ORIGIN: the secret never travels in clear", async () => {
   ]) {
     const calls = stubFetch();
     const response = await worker.fetch(
-      new Request("https://search-dev.palicanon.app/"),
+      new Request("https://search.dev.palicanon.app/"),
       { ORIGIN: bad, ORIGIN_AUTH: SECRET },
     );
     assert.equal(response.status, 500, bad);
@@ -197,7 +197,7 @@ test("an x-origin-auth sent by the client never reaches the origin, in any case 
   const sent = new Headers({ "x-origin-auth": "guess" });
   sent.append("X-Origin-Auth", "another guess");
   await worker.fetch(
-    new Request("https://search-dev.palicanon.app/", { headers: sent }),
+    new Request("https://search.dev.palicanon.app/", { headers: sent }),
     env(),
   );
   const upstream = [...calls[0].init.headers].filter(([name]) => name.toLowerCase() === "x-origin-auth");
@@ -207,7 +207,7 @@ test("an x-origin-auth sent by the client never reaches the origin, in any case 
 test("rewrites a Location onto PUBLIC_ORIGIN, whatever Host the request forges", async () => {
   for (const [url, host] of [
     ["https://evil.example/old", undefined],
-    ["https://search-dev.palicanon.app/old", "evil.example"],
+    ["https://search.dev.palicanon.app/old", "evil.example"],
     ["https://evil.example:8443/old?x=1", "evil.example:8443"],
   ]) {
     stubFetch(() => new Response(null, { status: 302, headers: { location: `${ORIGIN}/sutta/mn1?lang=en#top` } }));
@@ -232,14 +232,14 @@ test("answers 500 and calls nothing when PUBLIC_ORIGIN is missing, not https or 
     undefined,
     "",
     "not a url",
-    "http://search-dev.palicanon.app",
-    "HTTP://search-dev.palicanon.app/",
-    "ftp://search-dev.palicanon.app",
+    "http://search.dev.palicanon.app",
+    "HTTP://search.dev.palicanon.app/",
+    "ftp://search.dev.palicanon.app",
     "file:///etc/passwd",
   ]) {
     const calls = stubFetch();
     const response = await worker.fetch(
-      new Request("https://search-dev.palicanon.app/"),
+      new Request("https://search.dev.palicanon.app/"),
       { ORIGIN, PUBLIC_ORIGIN: bad, ORIGIN_AUTH: SECRET },
     );
     assert.equal(response.status, 500, String(bad));
@@ -253,7 +253,7 @@ test("answers 500 and calls nothing when PUBLIC_ORIGIN is missing, not https or 
 
 test("answers 500 when PUBLIC_ORIGIN is absent altogether", async () => {
   const calls = stubFetch();
-  const response = await worker.fetch(new Request("https://search-dev.palicanon.app/"), {
+  const response = await worker.fetch(new Request("https://search.dev.palicanon.app/"), {
     ORIGIN,
     ORIGIN_AUTH: SECRET,
   });
