@@ -190,7 +190,24 @@ fn the_copied_files_are_enough_for_cargo_to_load_the_workspace() {
         "the builder stage copies no search-front/Cargo.toml under /src/search-front"
     );
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-    let output = Command::new(cargo)
+    // `cargo metadata` resolves every target (windows, UEFI: `r-efi`, ...),
+    // while a runner that only built and tested for its host has fetched the
+    // host's crates (task 007 F2). Fetch what the lock needs for every target
+    // first, as the image build's own network step does, so the `--offline`
+    // load below judges the copied files and not the state of `CARGO_HOME`.
+    // No git source exists (the test above), so no credential is involved.
+    let fetch = Command::new(&cargo)
+        .args(["fetch", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .env("GIT_SSH_COMMAND", "/bin/false")
+        .output()
+        .expect("run cargo fetch");
+    assert!(
+        fetch.status.success(),
+        "cargo fetch on the replayed context failed:\n{}",
+        String::from_utf8_lossy(&fetch.stderr)
+    );
+    let output = Command::new(&cargo)
         .args([
             "metadata",
             "--locked",
