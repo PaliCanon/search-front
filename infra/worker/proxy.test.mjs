@@ -2,7 +2,7 @@
 // `x-origin-auth` from its secret `ORIGIN_AUTH`; without that secret it
 // answers 500 and calls nothing (a dropped secret is loud, not a storm of
 // 403s from the service); the public origin of `location` rewrites is the
-// binding `PUBLIC_ORIGIN`, never the request's own Host. Run: node --test infra/worker/
+// binding `PUBLIC_ORIGIN`, never the request's own Host. Run: node --test 'infra/worker/*.test.mjs'
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 

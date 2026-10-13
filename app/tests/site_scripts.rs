@@ -337,6 +337,67 @@ fn smoke_fails_when_the_binary_dies_at_boot() {
     assert_fails_naming(&out, "listen", "a binary that exits");
 }
 
+/// `smoke.sh` and a `token-pattern` with this text (`None`: no such file) in a
+/// fresh folder, as the image's runtime stage holds them (`/app/smoke.sh`).
+fn smoke_beside(name: &str, pattern: Option<&str>) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("search-front-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a folder");
+    std::fs::copy(script("smoke.sh"), dir.join("smoke.sh")).expect("copy smoke.sh");
+    if let Some(text) = pattern {
+        std::fs::write(dir.join("token-pattern"), text).expect("write token-pattern");
+    }
+    dir
+}
+
+/// Task 007 F1: the runtime stage lacked `token-pattern`, `head` printed an
+/// error, the pattern was empty and `grep -E ''` matched every response: the
+/// smoke test said "a token shape" about a healthy page. A missing, empty or
+/// blank pattern must fail loudly, naming the file, before anything starts.
+#[test]
+fn smoke_refuses_a_missing_or_empty_token_pattern() {
+    let binary = env!("CARGO_BIN_EXE_search_front");
+    for (case, pattern) in [
+        ("missing", None),
+        ("empty", Some("")),
+        ("a blank line", Some("\n")),
+        ("blanks", Some("  \n\n")),
+    ] {
+        let dir = smoke_beside(
+            &format!("smoke-pattern-{}", case.replace(' ', "-")),
+            pattern,
+        );
+        let out = run(&dir.join("smoke.sh"), &[binary], &[]);
+        let text = printed(&out);
+        assert_eq!(out.status.code(), Some(2), "{case}: {text}");
+        assert!(
+            text.contains("token-pattern"),
+            "{case}: names the file: {text}"
+        );
+        assert!(
+            !text.contains("FAIL token"),
+            "{case}: must not blame a response: {text}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// The same refusal in `--port` mode (nothing listens: the pattern is read
+/// first, so the answer is about the pattern, not the port).
+#[test]
+fn smoke_against_a_server_refuses_a_missing_token_pattern_too() {
+    let dir = smoke_beside("smoke-pattern-port", None);
+    let out = run(
+        &dir.join("smoke.sh"),
+        &["--port", "9"],
+        &[("ORIGIN_SECRET", SECRET)],
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(2), "{text}");
+    assert!(text.contains("token-pattern"), "{text}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 /// A fake server that breaks one check of `smoke.sh`, with the check it
 /// breaks and what is wrong.
 type Handler = Box<dyn Fn(&Req) -> Resp + Send>;
@@ -661,6 +722,64 @@ fn rollout_check_demands_a_secret_and_refuses_to_send_it_to_the_worker() {
     );
     let _ = std::fs::remove_file(file);
     let _ = std::fs::remove_file(bad);
+}
+
+/// One `rollout-check.sh` run: its mode name, its arguments and its extra
+/// environment.
+type RolloutRun<'a> = (&'a str, Vec<&'a str>, Vec<(&'a str, &'a str)>);
+
+/// Task 007 F5: `rollout-check.sh` read `token-pattern` with an unguarded
+/// `head` as `smoke.sh` did before F1: a missing or empty pattern made
+/// `grep -E ''` match every response ("a token shape in the body of the root
+/// response" about a healthy page). It must exit 2 naming the file, in every
+/// mode, before any request.
+#[test]
+fn rollout_check_refuses_a_missing_or_empty_token_pattern() {
+    let fake = Fake::start(healthy);
+    for (case, pattern) in [
+        ("missing", None),
+        ("empty", Some("")),
+        ("a blank line", Some("\n")),
+        ("blanks", Some("  \n\n")),
+    ] {
+        let dir = std::env::temp_dir().join(format!(
+            "rollout-pattern-{}-{}",
+            std::process::id(),
+            case.replace(' ', "-")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("a folder");
+        std::fs::copy(check_script(), dir.join("rollout-check.sh")).expect("copy the script");
+        if let Some(text) = pattern {
+            std::fs::write(dir.join("token-pattern"), text).expect("write token-pattern");
+        }
+        let script = dir.join("rollout-check.sh");
+        let url = fake.url();
+        let runs: [RolloutRun; 3] = [
+            (
+                "direct",
+                vec![url.as_str()],
+                vec![("ORIGIN_SECRET", SECRET)],
+            ),
+            ("worker", vec!["--via-worker", url.as_str()], vec![]),
+            ("refused", vec!["--refused", url.as_str()], vec![]),
+        ];
+        for (mode, args, env) in runs {
+            let out = run(&script, &args, &env);
+            let text = printed(&out);
+            assert_eq!(out.status.code(), Some(2), "{case}, {mode}: {text}");
+            assert!(
+                text.contains("token-pattern"),
+                "{case}, {mode}: names the file: {text}"
+            );
+            assert!(
+                !text.contains("FAIL token"),
+                "{case}, {mode}: must not blame a response: {text}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+    assert_eq!(fake.seen.lock().expect("lock").len(), 0, "nothing was sent");
 }
 
 #[test]

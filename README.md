@@ -66,7 +66,7 @@ bundle check above, the deploy's own tests and `tofu fmt`/`validate`:
 bash scripts/manifest-ref.test.sh      # the ref a manifest names for a git dependency
 python3 scripts/check_workflows_test.py && python3 scripts/check_workflows.py
 bash infra/scripts/origin-secret.test.sh
-node --test infra/worker/              # the Worker
+node --test 'infra/worker/*.test.mjs'  # the Worker
 (cd infra && tofu fmt -check -recursive && tofu init -backend=false && tofu validate)
 ```
 

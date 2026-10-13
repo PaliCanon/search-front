@@ -16,13 +16,25 @@
 # the header, or with a wrong one, is 403), `wasm` (the .wasm the page links
 # is served as application/wasm), `token` (no token shape in what came
 # back; the shape is scripts/token-pattern). Exit 0 all good, 1 a check
-# failed (named), 2 usage. Only status codes are printed, never a secret.
+# failed (named), 2 usage (or no usable scripts/token-pattern beside it). Only status codes are printed, never a secret.
 # SMOKE_WAIT: seconds to wait for the binary to listen (default 30).
 set -uo pipefail
 export LC_ALL=C
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-token_pattern="$(head -n 1 "$here/token-pattern")"
+# The pattern is read from the file next to this script, and an empty one
+# would make `grep -E ''` match every response (task 007 F1: the image's
+# runtime stage lacked the file, and a healthy page was reported as holding a
+# token). A missing, empty or blank pattern is a usage error, before anything
+# starts.
+token_pattern=""
+if [ -r "$here/token-pattern" ]; then
+  token_pattern="$(head -n 1 "$here/token-pattern")"
+fi
+if [ -z "${token_pattern//[[:space:]]/}" ]; then
+  echo "smoke: no token-pattern next to this script ($here/token-pattern is missing or empty)" >&2
+  exit 2
+fi
 work="$(mktemp -d)"
 pid=""
 cleanup() {

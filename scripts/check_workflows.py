@@ -14,6 +14,10 @@ Rules:
 - every `uses:` names a version (`@...`), local actions apart;
 - every `actions/checkout` sets `persist-credentials: false` (the GitHub App
   token must not stay in `.git/config`);
+- every job that runs `cargo` has the `siblings` action, `cargo fmt` included
+  (rustfmt follows `app/build.rs`'s `#[path]` into ui-lib, F4 of 007);
+- `node --test` takes files or quoted globs, never a directory (node 22 runs
+  a directory as a module and fails with "Cannot find module", F3 of 007);
 - no `docker/build-push-action` takes `secrets:` or `ssh:` (the build needs
   no credential, ruling R1);
 - deploy.yml: a concurrency group per environment that never cancels a
@@ -73,11 +77,23 @@ def check_permissions(name, doc):
     return [f"{name}: permissions: `{scope}` is more than read (only id-token: write is allowed)" for scope in bad]
 
 
+def check_node_test(name, run):
+    """`node --test DIR` runs the directory as a module on node 22 (task 007
+    F3): the arguments must be files or quoted globs (node expands them)."""
+    found = []
+    for line in run.splitlines():
+        match = re.search(r"\bnode\s+--test\s+(\S+)", line)
+        if match and not (match.group(1)[0] in "'\"" or match.group(1).endswith((".mjs", ".js", ".cjs"))):
+            found.append(f"{name}: node --test: `{match.group(1)}` is a directory or an unquoted glob; node 22 runs it as a module (use a quoted glob or a file)")
+    return found
+
+
 def check_step(name, step):
     found = []
     run = step.get("run", "")
     if "secrets." in run:
         found.append(f"{name}: secret in a run line: {run.strip().splitlines()[0][:60]}")
+    found.extend(check_node_test(name, run))
     uses = step.get("uses", "")
     if uses and not uses.startswith("./") and "@" not in uses:
         found.append(f"{name}: `{uses}` names no version")
@@ -419,6 +435,20 @@ def check_rollback(name, doc):
     return found
 
 
+def check_siblings(name, doc):
+    """Every job that runs cargo has the `siblings` action (task 007 F4):
+    the workspace reaches `../ui-lib` and `../api`, and rustfmt follows
+    `app/build.rs`'s `#[path]` into ui-lib, so even `cargo fmt` needs them."""
+    found = []
+    for job_name, job in (doc.get("jobs") or {}).items():
+        steps = job.get("steps", [])
+        runs_cargo = any(re.search(r"(^|[\s&;|(])cargo\s", step.get("run", ""), re.M) for step in steps)
+        has_siblings = any(str(step.get("uses", "")).endswith("/siblings") for step in steps)
+        if runs_cargo and not has_siblings:
+            found.append(f"{name}: job `{job_name}` runs cargo without the siblings action (ui-lib and api beside the checkout)")
+    return found
+
+
 def check_deploy(name, doc):
     found = []
     group = str(doc.get("concurrency", {}).get("group", ""))
@@ -437,6 +467,7 @@ def check(workflows, actions):
         for step in steps_of(doc):
             found += check_step(name, step)
     for name, doc in workflows.items():
+        found += check_siblings(name, doc)
         if name == "deploy.yml":
             found += check_deploy(name, doc)
     return found

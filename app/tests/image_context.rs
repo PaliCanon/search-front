@@ -190,7 +190,24 @@ fn the_copied_files_are_enough_for_cargo_to_load_the_workspace() {
         "the builder stage copies no search-front/Cargo.toml under /src/search-front"
     );
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-    let output = Command::new(cargo)
+    // `cargo metadata` resolves every target (windows, UEFI: `r-efi`, ...),
+    // while a runner that only built and tested for its host has fetched the
+    // host's crates (task 007 F2). Fetch what the lock needs for every target
+    // first, as the image build's own network step does, so the `--offline`
+    // load below judges the copied files and not the state of `CARGO_HOME`.
+    // No git source exists (the test above), so no credential is involved.
+    let fetch = Command::new(&cargo)
+        .args(["fetch", "--locked", "--manifest-path"])
+        .arg(&manifest)
+        .env("GIT_SSH_COMMAND", "/bin/false")
+        .output()
+        .expect("run cargo fetch");
+    assert!(
+        fetch.status.success(),
+        "cargo fetch on the replayed context failed:\n{}",
+        String::from_utf8_lossy(&fetch.stderr)
+    );
+    let output = Command::new(&cargo)
         .args([
             "metadata",
             "--locked",
@@ -418,4 +435,42 @@ fn the_builder_exports_the_build_branch_and_sha_before_the_build() {
             "ARG {name}, then ENV {name}, then cargo leptos build"
         );
     }
+}
+
+/// Task 007 F1: `scripts/smoke.sh` reads `token-pattern` from its own folder.
+/// The runtime stage once copied `smoke.sh` alone, so the last RUN of the
+/// image build ran without the pattern. Whatever stage runs `smoke.sh` must
+/// hold `token-pattern` in the same folder: the builder stage hands both to
+/// `/out`, and the runtime stage copies both into one destination.
+#[test]
+fn the_runtime_stage_holds_the_token_pattern_beside_smoke_sh() {
+    let mut stage = String::new();
+    let mut smoke_copies = 0;
+    for instruction in instructions(&dockerfile()) {
+        if let Some(from) = instruction.strip_prefix("FROM ") {
+            stage = from
+                .split_whitespace()
+                .last()
+                .unwrap_or_default()
+                .to_string();
+        }
+        if stage == "builder" && instruction.contains("cp ") && instruction.contains("smoke.sh") {
+            assert!(
+                instruction.contains("token-pattern"),
+                "the builder hands smoke.sh to /out without token-pattern: {instruction}"
+            );
+        }
+        if stage != "builder"
+            && stage != "tools"
+            && instruction.starts_with("COPY --from=builder")
+            && instruction.contains("smoke.sh")
+        {
+            smoke_copies += 1;
+            assert!(
+                instruction.contains("/out/token-pattern"),
+                "the runtime stage copies smoke.sh without token-pattern: {instruction}"
+            );
+        }
+    }
+    assert_eq!(smoke_copies, 1, "the runtime stage copies smoke.sh once");
 }

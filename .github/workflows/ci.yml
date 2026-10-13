@@ -35,6 +35,12 @@ jobs:
         with:
           path: search-front
           persist-credentials: false
+      # rustfmt walks the modules, `#[path]` ones included: app/build.rs includes
+      # ../../ui-lib/build/placeholders.rs, so fmt needs the siblings too.
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -200,7 +206,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node --test infra/worker/
+      # A quoted glob, not the directory: node 22 (the job's) runs a directory
+      # argument as a module and fails with "Cannot find module" (node 26 on a
+      # laptop walks it, which hid it).
+      - run: node --test 'infra/worker/*.test.mjs'
 
   tofu:
     name: tofu (fmt, validate)
