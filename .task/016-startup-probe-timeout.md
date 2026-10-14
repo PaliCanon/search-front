@@ -12,3 +12,9 @@ Deploy run 38419089828: the image built, passed its smoke and was pushed, then `
 | Define | done | orchestrator, 2026-10-13 |
 | Build | done | test: period=2, timeout=3, threshold=30: timeout not < period (1 fail, 1 pass); then period=5, timeout=3, threshold=12: both pass (2/2); infra_probe_test.py, check_workflows_test.py (76/76), check_workflows.py, tofu fmt all green |
 | Apply | done | with 015 (one apply): Cloud Run startup probe 5 s / 3 s / 12, in place. |
+
+## Retro
+Shared with 015 (see its Retro).
+- **Went wrong**: the probe (timeout ≥ period) passed tofu plan and 007's review — the Cloud Run v2 API accepts it, `gcloud run deploy` does not — and failed the first real rollout (run 38419089828).
+- **Went well**: cause named from the run's log; the 60 s cold-pull margin kept (5 s × 12); test written first, red on the old values, green after, wired into ci.yml.
+- **Changes**: infra reviews check each Cloud Run field against gcloud's rules, not only the API's; a rule a rollout rejects gets a pinned test (done here).
