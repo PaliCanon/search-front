@@ -182,10 +182,36 @@ status="$(fetch "$wasm" wasm "$who")"
 expect wasm wasm "$wasm" "$status" 200
 echo "rollout-check: wasm ok"
 
-status="$(fetch '/?q=satipatthana' search "$who")"
-expect search search '/?q=satipatthana' "$status" 200
-grep -aFq '<ol' "$work/search.body" || fail search "/?q=satipatthana has no result list"
-echo "rollout-check: search ok"
+# Search check with retry for a cold engine.
+# The engine may be starting (page has role="alert"), and we should retry.
+ROLLOUT_SEARCH_TRIES="${ROLLOUT_SEARCH_TRIES:-12}"
+ROLLOUT_SEARCH_WAIT="${ROLLOUT_SEARCH_WAIT:-10}"
+
+for try in $(seq 1 "$ROLLOUT_SEARCH_TRIES"); do
+  status="$(fetch '/?q=satipatthana' search "$who")"
+  expect search search '/?q=satipatthana' "$status" 200
+
+  # Check if we have a result list
+  if grep -aFq '<ol' "$work/search.body"; then
+    echo "rollout-check: search ok"
+    break
+  fi
+
+  # Check if the page shows the engine is starting
+  if grep -aFq 'role="alert"' "$work/search.body"; then
+    if [ "$try" -lt "$ROLLOUT_SEARCH_TRIES" ]; then
+      echo "rollout-check: search: the engine is starting, try $try/$ROLLOUT_SEARCH_TRIES" >&2
+      sleep "$ROLLOUT_SEARCH_WAIT"
+    else
+      # Failed after all retries
+      total_time=$((ROLLOUT_SEARCH_TRIES * ROLLOUT_SEARCH_WAIT))
+      fail search "the engine did not start in $total_time s"
+    fi
+  else
+    # No results and no starting marker: fail immediately
+    fail search "/?q=satipatthana has no result list"
+  fi
+done
 
 for name in root search; do
   for part in body head; do

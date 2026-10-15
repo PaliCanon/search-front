@@ -169,6 +169,11 @@ fn page(extra: &str) -> String {
 
 const RESULTS: &str = "<ol class=\"divide-y\"><li>MN 10</li></ol>";
 
+/// The engine starting page (the `ColdState` component renders with role="alert").
+const STARTING: &str = "<div role=\"alert\" class=\"mt-10 max-w-[60ch] space-y-2\">\
+                         <p>The engine is starting</p>\
+                         </div>";
+
 /// A healthy deployment: refuses a request without the secret, serves the
 /// page, the wasm and a result list to one with it.
 fn healthy(req: &Req) -> Resp {
@@ -626,6 +631,24 @@ fn answering(path: &'static str, status: u16, body: &str) -> Handler {
     })
 }
 
+/// A server that answers `path` with the starting state `times` times,
+/// then with `final_body`.
+fn starting_then(path: &'static str, times: u16, final_body: String) -> Handler {
+    let count: Arc<Mutex<u16>> = Arc::new(Mutex::new(0));
+    Box::new(move |r| {
+        if !r.authed() || r.path != path {
+            return healthy(r);
+        }
+        let mut c = count.lock().expect("lock");
+        *c += 1;
+        if *c <= times {
+            Resp::new(200, STARTING).with("content-type", "text/html")
+        } else {
+            Resp::new(200, &final_body).with("content-type", "text/html")
+        }
+    })
+}
+
 const SEARCH: &str = "/?q=satipatthana";
 
 fn rollout_status_cases() -> Vec<Case> {
@@ -732,6 +755,74 @@ fn rollout_check_demands_a_secret_and_refuses_to_send_it_to_the_worker() {
     );
     let _ = std::fs::remove_file(file);
     let _ = std::fs::remove_file(bad);
+}
+
+/// The engine is starting twice, then returns results: the check should
+/// retry and pass.
+#[test]
+fn rollout_check_retries_while_the_engine_is_starting() {
+    let fake = Fake::start(starting_then(SEARCH, 2, page(RESULTS)));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &[("ORIGIN_SECRET", SECRET)],
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(0), "passes after retries: {text}");
+    assert!(
+        text.contains("search ok"),
+        "the search check passes: {text}"
+    );
+    // Should see retry messages indicating the engine was starting.
+    assert!(
+        text.contains("the engine is starting"),
+        "saw retry messages: {text}"
+    );
+}
+
+/// The engine is always starting (never returns results): the check should
+/// fail after the retry bound with a message naming the bound.
+#[test]
+fn rollout_check_fails_after_retries_if_engine_never_starts() {
+    let fake = Fake::start(starting_then(SEARCH, 999, page(RESULTS)));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &[
+            ("ORIGIN_SECRET", SECRET),
+            ("ROLLOUT_SEARCH_TRIES", "3"),
+            ("ROLLOUT_SEARCH_WAIT", "0"),
+        ],
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(1), "fails: {text}");
+    assert!(text.contains("search"), "names the search check: {text}");
+    // Should see "did not start" message with timeout value.
+    assert!(text.contains("did not start"), "mentions timeout: {text}");
+}
+
+/// The search page has neither results nor the starting marker: the check
+/// should fail immediately without retrying.
+#[test]
+fn rollout_check_fails_immediately_on_bad_page_without_starting_marker() {
+    let fake = Fake::start(answering(SEARCH, 200, &page("<p>Something weird</p>")));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &[("ORIGIN_SECRET", SECRET)],
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(1), "fails: {text}");
+    assert!(text.contains("search"), "names the search check: {text}");
+    // Should see "has no result list" message, not "did not start".
+    assert!(
+        text.contains("has no result list"),
+        "immediate failure: {text}"
+    );
+    assert!(
+        !text.contains("the engine is starting"),
+        "no retry messages: {text}"
+    );
 }
 
 /// One `rollout-check.sh` run: its mode name, its arguments and its extra
