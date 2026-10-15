@@ -29,3 +29,6 @@ Out of scope: a node changed INSIDE the root (Email Obfuscation rewriting an add
 | Merge | done | ab6dd4e on main (squash), pushed: deploy.yml rolls search.dev with the hydrate check; prod by tag after the dev check. |
 | Dev check | done | first deploy run red at the pre-traffic search check (cold dev engine → task 018), re-run green after warming: search-front-dev serves h-68c7fdd258adac9a; runner challenged (exit 3); orchestrator CDP check with a fresh profile: data-hydrated true, results rendered. Note: a probe reusing its Chrome profile still panicked (the old /pkg/search-front.wasm cached against the new HTML): the follow-up "hashed pkg names" (ui-lib 063, d0a3da22bb4254c) matters for returning visitors. |
 | Prod | done | tag v0.1.1, run green: search-front-prod serves h-68c7fdd258adac9a; runner challenged (exit 3); orchestrator CDP check (fresh profile) on https://search.palicanon.app/?q=anger: data-hydrated true, no panic, 20 passages rendered. |
+
+## Retro
+With ui-lib 063 (retro-discussion d0f1c493b854747, docs 987f948). Follow-up: 019 hashed pkg names.
