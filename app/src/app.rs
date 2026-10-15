@@ -11,8 +11,8 @@ use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_location;
 use leptos_router::path;
 use palicanon_ui_lib::{
-    AppShell, EnvBadgeInfo, IconName, NavEntry, NavList, NavSection, language_attribute,
-    provide_language, theme_attribute,
+    AppShell, EnvBadgeInfo, HydrationRoot, IconName, NavEntry, NavList, NavSection,
+    language_attribute, provide_language, theme_attribute,
 };
 
 use crate::catalogue::strings;
@@ -42,7 +42,11 @@ pub(crate) const BADGE: EnvBadgeInfo = EnvBadgeInfo {
 /// The HTML document around the app, rendered on the server. `data-theme`
 /// and `lang` follow the request's cookies ([`theme_attribute`],
 /// [`language_attribute`]), so the first paint never flashes the wrong
-/// one.
+/// one. The app sits in ui-lib's [`HydrationRoot`] (`<div id="pc-app">`),
+/// the one element of `<body>` the server renders, which the browser's
+/// entry (`palicanon_ui_lib::hydrate`, in `lib.rs`) hydrates from: what
+/// Cloudflare adds to `<body>` (a decoy link first, scripts after) stays
+/// outside it (ui-lib 063).
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
         <!DOCTYPE html>
@@ -56,7 +60,9 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <MetaTags />
             </head>
             <body>
-                <App />
+                <HydrationRoot>
+                    <App />
+                </HydrationRoot>
             </body>
         </html>
     }
@@ -229,6 +235,58 @@ mod tests {
                 "home link missing in {language:?}: {html}"
             );
         }
+    }
+
+    /// Where the `<div …>` opened at `start` closes: the index of its
+    /// matching `</div>` (the app's markup nests divs, never self-closes one).
+    fn matching_div_close(html: &str, start: usize) -> usize {
+        let mut depth = 0usize;
+        let mut at = start;
+        loop {
+            let open = html[at..].find("<div").map(|i| at + i);
+            let close = html[at..].find("</div>").map(|i| at + i).expect(html);
+            match open {
+                Some(open) if open < close => {
+                    depth += 1;
+                    at = open + 4;
+                }
+                _ => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return close;
+                    }
+                    at = close + 6;
+                }
+            }
+        }
+    }
+
+    /// 017 (ui-lib 063): the server's document wraps the app in ui-lib's
+    /// hydration root, `<div id="pc-app">`, the one element of `<body>` it
+    /// renders, which the browser's `palicanon_ui_lib::hydrate` starts
+    /// from: the nodes Cloudflare adds to `<body>` (its decoy link first)
+    /// then sit outside the app.
+    #[test]
+    fn the_shell_body_is_the_hydration_root_around_the_app() {
+        let options = LeptosOptions::builder().output_name("search-front").build();
+        let html = Owner::new().with(|| {
+            provide_context(RequestUrl::new("/privacy"));
+            shell(options).to_html()
+        });
+        let body = html.find("<body>").expect(&html) + "<body>".len();
+        let end = html.find("</body>").expect(&html);
+        assert!(
+            html[body..].starts_with(r#"<div id="pc-app">"#),
+            "the root opens the body: {html}"
+        );
+        assert_eq!(
+            matching_div_close(&html, body) + "</div>".len(),
+            end,
+            "the root closes the body: {html}"
+        );
+        let page = html.find(">Privacy</h1>").expect(&html);
+        let footer = html.find("<footer").expect(&html);
+        assert!(body < page && footer < end, "the app is inside: {html}");
     }
 
     /// The app layout has no screen-tall column wrapper; the footer is in

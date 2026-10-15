@@ -19,10 +19,19 @@
 # `wasm` (the .wasm the page links is served), `search` (/?q=satipatthana is
 # 200 with a result list: a live call to the API), `token` (no token shape —
 # scripts/token-pattern — in the bodies and headers of / and the search),
-# `guard` (without the header, or with a wrong one: 403), `refused`.
-# Exit 0 all good, 1 a check failed (named), 2 usage (or no usable token-pattern beside the script), 3 Cloudflare answered
-# with a challenge (cf-mitigated): the runner is not allowed, which says
-# nothing about the service. 4 (--via-worker only) the Worker itself answered
+# `guard` (without the header, or with a wrong one: 403), `refused`, and,
+# through the Worker only (Chrome cannot add the origin header), `hydrate`:
+# headless Chrome loads /, /?q=satipatthana and /privacy (ui-lib 063: the
+# page hydrates past the nodes Cloudflare injects); a page passes when
+# Chrome's console (stderr) has no `panicked at` nor `RuntimeError` and its
+# dumped DOM has `<html data-hydrated>` (set by palicanon_ui_lib::hydrate).
+# Chrome is $CHROME, else google-chrome, google-chrome-stable, chromium,
+# chromium-browser or macOS's Google Chrome; each page gets
+# $ROLLOUT_CHROME_TIMEOUT seconds (60), past which it fails.
+# Exit 0 all good, 1 a check failed (named), 2 usage (or no usable
+# token-pattern beside the script, or no usable Chrome), 3 Cloudflare answered
+# with a challenge (cf-mitigated, or a challenge page in Chrome): the runner
+# is not allowed, which says nothing about the service, and is never a pass. 4 (--via-worker only) the Worker itself answered
 # 500 — "The origin secret is not configured.", "The origin is not
 # configured." or "The public origin is not configured." (the shared suffix
 # `is not configured.`, whitespace and CR trimmed; infra/worker/proxy.js):
@@ -194,3 +203,63 @@ if [ "$mode" = direct ]; then
   [ "$status" = 403 ] || fail guard "a request with a wrong header answered $status (403 wanted)"
   echo "rollout-check: guard ok"
 fi
+
+[ "$mode" = worker ] || exit 0
+
+# ------------------------------------------------------------- hydrate (T3)
+
+# The Chrome to drive: $CHROME, or the first one found.
+chrome="${CHROME:-}"
+if [ -n "$chrome" ]; then
+  [ -x "$chrome" ] || { echo "rollout-check: CHROME is not an executable Chrome ($chrome)" >&2; exit 2; }
+else
+  for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+    chrome="$(command -v "$candidate" 2>/dev/null)" && break
+  done
+  mac_chrome="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+  if [ -z "$chrome" ] && [ -x "$mac_chrome" ]; then chrome="$mac_chrome"; fi
+  [ -n "$chrome" ] || { echo "rollout-check: no Chrome to check hydration with: set CHROME" >&2; exit 2; }
+fi
+limit="${ROLLOUT_CHROME_TIMEOUT:-60}"
+case "$limit" in
+  '' | *[!0-9]*) echo "rollout-check: ROLLOUT_CHROME_TIMEOUT must be a number of seconds" >&2; exit 2 ;;
+esac
+
+# limited CMD…: CMD, stopped after $limit seconds (macOS has no `timeout`).
+limited() {
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$limit" "$@"
+  else
+    perl -e 'alarm shift; exec @ARGV' "$limit" "$@"
+  fi
+}
+
+# hydrate PATH N: Chrome loads $url$PATH, its DOM in $work/dom-N, its
+# console in $work/console-N; fails, or exits 3 on a challenge.
+hydrate() {
+  local path=$1 n=$2 rc=0 flags=()
+  # A runner's Chrome has no usable sandbox; a laptop's keeps it.
+  [ "${CI:-}" = true ] && flags+=(--no-sandbox)
+  limited "$chrome" --headless=new --disable-gpu --no-first-run --no-default-browser-check \
+    "--user-data-dir=$work/chrome-$n" "${flags[@]+"${flags[@]}"}" \
+    --enable-logging=stderr --virtual-time-budget=15000 --dump-dom "$url$path" \
+    > "$work/dom-$n" 2> "$work/console-$n" || rc=$?
+  local panic
+  panic="$(grep -aE -m 1 'panicked at|RuntimeError' "$work/console-$n" | cut -c 1-300)"
+  [ -z "$panic" ] || fail hydrate "$path: the page panicked in the browser: $panic"
+  if grep -aEq '_cf_chl_opt|<title>Just a moment' "$work/dom-$n"; then
+    echo "rollout-check: challenge: Cloudflare challenged Chrome on $path; hydration was not checked (never a pass: run it by hand)" >&2
+    exit 3
+  fi
+  if ! grep -aEq '<html[^>]*[[:space:]]data-hydrated' "$work/dom-$n"; then
+    [ "$rc" = 0 ] || fail hydrate "$path: no data-hydrated on <html>: Chrome stopped (exit $rc, limit ${limit}s)"
+    fail hydrate "$path: no data-hydrated on <html>: the page never hydrated"
+  fi
+}
+
+n=0
+for path in / '/?q=satipatthana' /privacy; do
+  n=$((n + 1))
+  hydrate "$path" "$n"
+done
+echo "rollout-check: hydrate ok"
