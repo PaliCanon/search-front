@@ -85,6 +85,9 @@ answers 403 to any request without the Worker's `x-origin-auth` secret, so the
 repository secrets are `APP_ID` and `APP_PRIVATE_KEY`, the variables
 `WIF_PROVIDER`, `DEPLOYER_SA` and `GCP_PROJECT`. The infrastructure, the
 Worker and the ordered first-time commands are in `infra/README.md`.
+The public-host check (`scripts/rollout-check.sh --via-worker`) also loads
+`/`, a search and `/privacy` in headless Chrome (`$CHROME`) and fails on a
+hydration panic or a page without `<html data-hydrated>` (ui-lib 063).
 
 ## What it never holds
 
