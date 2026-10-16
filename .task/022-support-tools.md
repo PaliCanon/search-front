@@ -136,3 +136,6 @@ Graph v3; deep #10442, sage #10477 (a changelog, T none: counts as a reading, de
 
 ## Merge
 a420099 on main, 2026-10-16.
+
+## Retro
+Validated 2026-10-16 (retro-discussion d2c2167645eb14a #10617, deep #10625; gemini 429). Errors: the viewer's design pushed from the wrong Mermaid block; a lane brief stale against a later ruling; a Define objection never answered (fast path); the wasm32 toolchain and the rustup shim order cost lanes; dead_code on data landing before its reader; wrong counts and unmapped graph labels in briefs; vacuous loops and too_many_lines caught late; mutation proofs on a vanished commit; the orchestrator committing during a lane; the voices' window misdescribed as ten messages (it is 60k characters); sage's changelog answer; a2m blind to cfg(test). Written: docs e1c75be, a44e69d, b0115b6, c58df25; claude-memory 8fbb976.
