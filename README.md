@@ -13,6 +13,27 @@ configured source on the server — the browser holds neither the mock nor
 the token. Without the two variables below the service runs on the in-repo
 mock (`app/src/search/mock.rs`), a few fixed hits.
 
+## Inside the PaliCanon app (task 021)
+
+The PaliCanon app (Tauri, client side, offline) mounts Search under `/search`
+in its own shell, beside Learn and the Map, and searches with its local
+engine only, never the network. The crate has three build modes, never two
+at once: `ssr` and `hydrate` (this site) and `csr` (the app, wasm32, no
+server function, no endpoint, no token: `tests/csr_tree.rs` and
+`BUNDLE_MODE=csr scripts/check-wasm-no-token.sh` guard it).
+
+The public fragment is `search_front::fragment`: `SearchProvider` (the host's
+[`SearchBackend`](app/src/search/backend.rs), required) and `SearchRoutes`
+(one relative route the host mounts at the root or inside its own
+`ParentRoute`). Its links come from the route that matched it
+(`use_matched()`), its URL is its contract (`?q=` `?c=` `?mode=` `?passage=`),
+and under `csr` a submit navigates in place. Its hidden dependencies (one
+language signal, root-served `/lotus.png` and `/brand/*.svg`, one provider
+per page, the host's ui-lib tag, external links opened outside the window)
+are in `app/src/fragment.rs` and each tested. The site plugs
+`SiteBackend` (today's server function); the mode dropdown is not rendered
+while the backend's `meaning()` is false.
+
 ## Run it
 
 ```sh
@@ -46,10 +67,27 @@ cargo fmt --all --check
 leptosfmt --check .    # the view! macros (cargo install leptosfmt --locked)
 cargo clippy -p search_front --features ssr --all-targets -- -D warnings
 cargo clippy -p search_front --lib --features hydrate --target wasm32-unknown-unknown -- -D warnings
+cargo clippy -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --all-targets -- -D warnings
 cargo test -p search_front --features ssr
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p search_front --features ssr
 cargo leptos build                  # Verify: the bundle, then the token check
 scripts/check-wasm-no-token.sh      # the built .wasm/.js hold no SEARCH_API_TOKEN, no API client
+```
+
+The app's build (`csr`) has its own browser tests, in a headless Chrome
+through `wasm-bindgen-test-runner` (the version of `Cargo.lock`'s
+`wasm-bindgen`) and a chromedriver matching Chrome, and its own bundle
+check (the same needles plus the site's endpoint `/api/search_passages`; an
+empty or unknown `BUNDLE_MODE` is an error, only an unset one is the site; CI
+checks both test bundles, the app checks its own bundle the same way):
+
+```sh
+CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner CHROMEDRIVER=<chromedriver> \
+  cargo test -p search_front --no-default-features --features csr \
+  --target wasm32-unknown-unknown --test csr --test csr_mount
+# the test binary's wasm-bindgen output holds the fragment and nothing of the server:
+wasm-bindgen --target web --out-dir pkg-csr <target/wasm32-unknown-unknown/debug/deps/csr-*.wasm>
+BUNDLE_MODE=csr PKG_DIR=pkg-csr scripts/check-wasm-no-token.sh
 ```
 
 `scripts/check-wasm-no-token.sh [canary]` greps `target/site/pkg/*.wasm` and

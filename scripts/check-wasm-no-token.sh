@@ -13,8 +13,16 @@
 # this script and by `rollout-check.sh`. Only the file and "token shape"
 # are printed, never the bytes.
 #
+# The PaliCanon app's bundle (the `csr` build, which searches locally and
+# holds no server function) is checked with BUNDLE_MODE=csr: the same
+# needles plus the server function's endpoint, `/api/search_passages`, which
+# the site's own bundle legitimately holds (it is how the browser searches)
+# and the app's must not (task 021). Any other mode, an empty one included,
+# is exit 2; only an unset BUNDLE_MODE is the site.
+#
 # Run after `cargo leptos build` from the repository root:
 #   scripts/check-wasm-no-token.sh [canary]
+#   BUNDLE_MODE=csr PKG_DIR=<wasm-bindgen output> scripts/check-wasm-no-token.sh
 # Exit 0: clean. Exit 1: a hit (the file and the needle are printed, never
 # the surrounding bytes). Exit 2: nothing to check (no built bundle, or no
 # token-pattern).
@@ -39,6 +47,16 @@ needles=(
   __search_front_mock_error__
   __search_front_mock_rate_limited__
 )
+# Unset is the site; set but empty is an error (a CI variable that expanded to
+# nothing must not turn an app bundle check into the site's).
+case "${BUNDLE_MODE-site}" in
+  site) ;;
+  csr) needles+=(/api/search_passages) ;;
+  *)
+    echo "check-wasm-no-token: unknown BUNDLE_MODE '${BUNDLE_MODE}' (site or csr)" >&2
+    exit 2
+    ;;
+esac
 if [ -n "${1:-}" ]; then
   needles+=("$1")
 fi

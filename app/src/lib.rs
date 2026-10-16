@@ -1,7 +1,14 @@
 //! search-front: the PaliCanon search page, Leptos SSR + hydrate on
-//! `palicanon-ui-lib`. Search answers behind [`search::SearchSource`]: the
-//! mock (`search::mock::MockSource`, server-only) today, the real `/v1/search`
-//! client (task 005) without the view code changing.
+//! `palicanon-ui-lib`, and the same page as a fragment the PaliCanon app
+//! mounts client side (`csr`).
+//!
+//! The site (`ssr`, `hydrate`) answers searches through the `search_passages`
+//! server function ([`search::site::SiteBackend`]) behind
+//! [`search::SearchSource`]: the mock (`search::mock::MockSource`,
+//! server-only) or the real `/v1/search` client. The app (`csr`) mounts
+//! [`fragment::SearchRoutes`] inside its own shell and plugs its own
+//! [`search::backend::SearchBackend`] (a local engine, never the network);
+//! its build holds no server function, no endpoint and no token.
 
 // `AppShell`'s nested `Option<ViewFn>` / `hidden=move || …` markup builds a
 // type deep enough that rustc's default query-depth limit can overflow
@@ -10,15 +17,19 @@
 // 010/027). Raised defensively since this service uses `AppShell` too.
 #![recursion_limit = "512"]
 
+#[cfg(feature = "site")]
 pub mod app;
 #[cfg(feature = "ssr")]
 pub mod boot;
 mod catalogue;
 mod components;
+pub mod fragment;
 mod highlight;
+mod links;
 #[cfg(feature = "ssr")]
 pub mod origin;
 pub(crate) mod page;
+#[cfg(feature = "site")]
 mod pages;
 #[cfg(feature = "ssr")]
 pub mod router;

@@ -14,7 +14,13 @@ mod response;
 #[cfg(all(test, feature = "ssr"))]
 pub(crate) mod harness;
 #[cfg(all(test, feature = "ssr"))]
+mod tests_fake;
+#[cfg(all(test, feature = "ssr"))]
+mod tests_modes;
+#[cfg(all(test, feature = "ssr"))]
 mod tests_real;
+
+use std::sync::Arc;
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_query_map;
@@ -22,11 +28,13 @@ use leptos_router::params::ParamsMap;
 use palicanon_ui_lib::{Language, language_signal};
 
 use crate::components::filters::{CollectionSelect, ModeSelect};
-use crate::components::home::{Brand, BrandLink, DailyPassage, Examples, form_encode};
+use crate::components::home::{Brand, BrandLink, DailyPassage, Examples};
 use crate::components::result_list::ResultList;
 use crate::components::search_bar::{ResultsSearchBar, SEARCH_FORM_ID, SearchBar};
 use crate::components::states::{ColdState, ErrorState, RateLimitedState};
-use crate::search::server::search_passages;
+use crate::fragment::submit::InPlaceSubmit;
+use crate::links::{Base, Retry, search_href};
+use crate::search::backend::{Provided, SearchBackend, SearchQuery};
 use crate::search::{Collection, Mode, SearchOutcome, SearchResponse};
 use pending::{Area, pending_view};
 
@@ -44,6 +52,9 @@ struct SearchKey {
     mode: Mode,
     /// The collection `?c=` resolved to.
     collection: Collection,
+    /// The home's `?passage=`, raw: it picks the verse, asks nothing, and is
+    /// kept by every link and submit so a shared URL survives them.
+    passage: String,
 }
 
 impl SearchKey {
@@ -54,6 +65,7 @@ impl SearchKey {
             lang: language.code(),
             mode: Mode::parse(params.get("mode").unwrap_or_default().as_str()),
             collection: Collection::parse(params.get("c").unwrap_or_default().as_str()),
+            passage: params.get("passage").unwrap_or_default(),
         }
     }
 
@@ -62,33 +74,61 @@ impl SearchKey {
         self.q.trim().is_empty()
     }
 
-    /// This search as the page's own GET, what the retry links point at.
-    fn href(&self) -> String {
-        format!(
-            "/?q={}&c={}&mode={}",
-            form_encode(&self.q),
-            self.collection.code(),
-            self.mode.code()
-        )
+    /// Whether `other` asks the same search: the query, the language, the
+    /// mode asked and the collection (not `?passage=`, which only picks the
+    /// home's verse).
+    fn same_search(&self, other: &SearchKey) -> bool {
+        (&self.q, self.lang, self.mode, self.collection)
+            == (&other.q, other.lang, other.mode, other.collection)
+    }
+
+    /// What the backend is asked for this key: the mode asked while
+    /// `meaning` says Meaning and Both can be served, Words otherwise. The
+    /// key itself keeps the mode asked, which every link is built from, so
+    /// a downgrade never rewrites a shareable URL.
+    fn query(&self, meaning: bool) -> SearchQuery {
+        SearchQuery {
+            q: self.q.clone(),
+            lang: self.lang,
+            mode: if meaning { self.mode } else { Mode::Words },
+            collection: self.collection,
+        }
+    }
+
+    /// This search as the page's own GET on `base`, what the retry links
+    /// point at, built from the mode asked.
+    fn href(&self, base: &str) -> String {
+        search_href(base, &self.q, self.collection, self.mode, &self.passage)
     }
 }
 
-/// The page's only search path, whichever side runs it: the server fn
-/// (a direct call on the server, an HTTP call from the browser). A blank
-/// query asks nothing and answers an empty outcome here; a server fn that
-/// itself fails (the browser lost the network) is the failed state.
-async fn fetch(key: SearchKey) -> SearchOutcome {
-    if key.is_blank() {
-        return SearchOutcome::Hits(SearchResponse::empty(key.q.trim()));
+/// The page's only search path: the host's [`SearchBackend`], whichever
+/// side runs it (the site's server function, the app's local engine). A
+/// blank query asks nothing and answers an empty outcome here.
+async fn fetch(backend: Arc<dyn SearchBackend>, query: SearchQuery) -> SearchOutcome {
+    if query.q.is_empty() {
+        return SearchOutcome::Hits(SearchResponse::empty(""));
     }
-    search_passages(
-        key.q,
-        key.lang.to_owned(),
-        key.mode.code().to_owned(),
-        key.collection.code().to_owned(),
+    backend.search(query).await
+}
+
+/// The page's one `Resource`, keyed on the query the backend is asked
+/// ([`SearchKey::query`]: the mode resolved against `meaning`) and on the
+/// retry count. A model arriving flips `meaning`, which asks the same search
+/// again as asked; a [`Retry`] bump asks the same search again whatever the
+/// outcome was. Leptos runs a `Resource`'s fetches one after the other, so
+/// an answer in flight lands first (shown dimmed while the next is pending)
+/// and can never overwrite a fresher one.
+fn search_resource(
+    backend: Arc<dyn SearchBackend>,
+    key: Signal<SearchKey>,
+    meaning: Signal<bool>,
+    retry: Retry,
+) -> Resource<SearchOutcome> {
+    Resource::new(
+        move || (key.get().query(meaning.get()), retry.get()),
+        move |(query, _)| fetch(Arc::clone(&backend), query),
     )
-    .await
-    .unwrap_or(SearchOutcome::Failed)
 }
 
 /// The search page: the home while `?q=` is blank, the results otherwise.
@@ -103,20 +143,35 @@ async fn fetch(key: SearchKey) -> SearchOutcome {
 /// pending.
 #[component]
 pub fn SearchPage() -> impl IntoView {
+    let Provided { backend, meaning } = use_context::<Provided>()
+        .expect("SearchPage needs a SearchProvider above it (the host's backend)");
     let params = use_query_map();
     let key = Memo::new(move |_| SearchKey::read(&params.get(), language_signal().get()));
-    let outcome = Resource::new(move || key.get(), fetch);
+    let retry = Retry::new();
+    provide_context(retry);
+    let outcome = search_resource(backend, key.into(), meaning, retry);
+    let base = Base::matched();
     let home = Memo::new(move |_| key.get().is_blank());
+    let language = language_signal();
+    let same_search = Callback::new(move |sent: ParamsMap| {
+        SearchKey::read(&sent, language.get_untracked()).same_search(&key.get_untracked())
+    });
     view! {
-        {move || {
-            if home.get() { home_view(params).into_any() } else { results_view(key, outcome) }
-        }}
+        <InPlaceSubmit base=base retry=retry same_search=same_search>
+            {move || {
+                if home.get() {
+                    home_view(params, meaning, base).into_any()
+                } else {
+                    results_view(key, outcome, meaning, base)
+                }
+            }}
+        </InPlaceSubmit>
     }
 }
 
 /// The home: centred, the brand, the card, the example queries and the
 /// passage. It follows `?passage=` and the card's own filters.
-fn home_view(params: Memo<ParamsMap>) -> impl IntoView {
+fn home_view(params: Memo<ParamsMap>, meaning: Signal<bool>, base: Base) -> impl IntoView {
     move || {
         let params = params.get();
         let query = params.get("q").unwrap_or_default();
@@ -128,14 +183,14 @@ fn home_view(params: Memo<ParamsMap>) -> impl IntoView {
                 <div class="flex flex-col items-center px-6 pt-[max(4rem,20vh)] pb-12">
                     <div class="w-full max-w-[42rem]">
                         <Brand />
-                        <SearchBar value=query mode=mode collection=collection />
+                        <SearchBar value=query mode=mode collection=collection meaning=meaning />
                         <div class="mt-5">
-                            <Examples />
+                            <Examples base=base />
                         </div>
                     </div>
                 </div>
                 <section class="px-6 pt-16 pb-24 sm:pt-28">
-                    <DailyPassage raw=passage />
+                    <DailyPassage base=base raw=passage />
                 </section>
             </div>
         }
@@ -146,12 +201,17 @@ fn home_view(params: Memo<ParamsMap>) -> impl IntoView {
 /// and the results area in the bar's column. The header and chips follow
 /// the key; the results area, which holds the `Transition`, stays mounted
 /// across searches so the stale hits can stay while one is pending.
-fn results_view(key: Memo<SearchKey>, outcome: Resource<SearchOutcome>) -> AnyView {
+fn results_view(
+    key: Memo<SearchKey>,
+    outcome: Resource<SearchOutcome>,
+    meaning: Signal<bool>,
+    base: Base,
+) -> AnyView {
     view! {
         {move || {
             let q = key.get().q;
             view! {
-                <ResultsHeader>
+                <ResultsHeader base=base>
                     <ResultsSearchBar value=q />
                 </ResultsHeader>
             }
@@ -160,6 +220,17 @@ fn results_view(key: Memo<SearchKey>, outcome: Resource<SearchOutcome>) -> AnyVi
             <div class="min-w-0 sm:col-start-2">
                 {move || {
                     let key = key.get();
+                    let mode = meaning
+                        .get()
+                        .then(|| {
+                            view! {
+                                <ModeSelect
+                                    value=key.mode
+                                    form=SEARCH_FORM_ID
+                                    submit_on_change=true
+                                />
+                            }
+                        });
                     view! {
                         <div class="flex flex-wrap items-center gap-2 pt-3">
                             <CollectionSelect
@@ -167,10 +238,10 @@ fn results_view(key: Memo<SearchKey>, outcome: Resource<SearchOutcome>) -> AnyVi
                                 form=SEARCH_FORM_ID
                                 submit_on_change=true
                             />
-                            <ModeSelect value=key.mode form=SEARCH_FORM_ID submit_on_change=true />
+                            {mode}
                         </div>
                     }
-                }} <ResultsArea key=key outcome=outcome />
+                }} <ResultsArea key=key outcome=outcome base=base />
             </div>
         </main>
     }
@@ -188,6 +259,8 @@ fn ResultsArea(
     key: Memo<SearchKey>,
     /// Its outcome.
     outcome: Resource<SearchOutcome>,
+    /// Where the fragment is mounted: the retry links go to its page.
+    base: Base,
 ) -> impl IntoView {
     let (pending, set_pending) = signal(false);
     view! {
@@ -197,7 +270,7 @@ fn ResultsArea(
         >
             {move || {
                 let held = outcome.get();
-                area_view(&pending_view(held.as_ref(), pending.get()), &key.get())
+                area_view(&pending_view(held.as_ref(), pending.get()), &key.get(), &base.get())
             }}
         </Transition>
     }
@@ -205,7 +278,7 @@ fn ResultsArea(
 
 /// One state of the results area: its wrapper (busy or not) around the
 /// outcome's view. A settled outcome is also written to the response.
-fn area_view(area: &Area<'_>, key: &SearchKey) -> AnyView {
+fn area_view(area: &Area<'_>, key: &SearchKey, base: &str) -> AnyView {
     #[cfg(feature = "ssr")]
     if let Some(outcome) = area.outcome
         && !area.busy
@@ -214,7 +287,7 @@ fn area_view(area: &Area<'_>, key: &SearchKey) -> AnyView {
     }
     let shown = area
         .outcome
-        .map(|outcome| outcome_view(outcome, key.href()));
+        .map(|outcome| outcome_view(outcome, key.href(base)));
     view! {
         <div aria-busy=area.aria_busy() class=area.class()>
             {shown}
@@ -242,11 +315,15 @@ fn outcome_view(outcome: &SearchOutcome, href: String) -> AnyView {
 /// column — today's site's header, whose last column held the language
 /// and settings buttons the shell's rail carries here.
 #[component]
-fn ResultsHeader(children: Children) -> impl IntoView {
+fn ResultsHeader(
+    /// Where the fragment is mounted: the brand links to its page.
+    base: Base,
+    children: Children,
+) -> impl IntoView {
     view! {
         <header class="border-b border-line">
             <div class=HEADER_GRID>
-                <BrandLink />
+                <BrandLink base=base />
                 <div class="col-span-2 min-w-0 sm:col-span-1">{children()}</div>
             </div>
         </header>
@@ -303,6 +380,31 @@ mod tests {
         assert_eq!(default.lang, "en");
     }
 
+    /// G1 (review 021, round 1): two keys ask the same search when the query,
+    /// the language, the mode asked and the collection are equal; the
+    /// home's `?passage=` is not part of it.
+    #[test]
+    fn the_same_search_ignores_the_passage_and_nothing_else() {
+        let key = |q: &str, c: &str, mode: &str, passage: &str| {
+            let mut params = ParamsMap::new();
+            for (name, value) in [("q", q), ("c", c), ("mode", mode), ("passage", passage)] {
+                params.insert(name, value.to_owned());
+            }
+            SearchKey::read(&params, Language::En)
+        };
+        let asked = key("metta", "mn", "words", "");
+        assert!(asked.same_search(&key(" metta ", "mn", "words", "3")));
+        for other in [
+            key("karuna", "mn", "words", ""),
+            key("metta", "sn", "words", ""),
+            key("metta", "mn", "both", ""),
+        ] {
+            assert!(!asked.same_search(&other), "{other:?}");
+        }
+        let french = SearchKey::read(&ParamsMap::new(), Language::Fr);
+        assert!(!SearchKey::read(&ParamsMap::new(), Language::En).same_search(&french));
+    }
+
     /// T5 (review 005, round 3): the language alone rekeys the resource:
     /// two keys built from the same `ParamsMap` with different languages
     /// are never equal, so a language switch asks again.
@@ -320,6 +422,65 @@ mod tests {
         assert_eq!(key_fr.collection, key_en.collection);
         assert_eq!(key_fr.lang, "fr");
         assert_eq!(key_en.lang, "en");
+    }
+
+    /// G2 (review 021, round 1): one builder. A submitted form's raw values
+    /// and the key read from the same parameters spell the same href, a
+    /// field equal to its default is not written, and `?passage=` (a field
+    /// the form never carries) is kept.
+    #[test]
+    fn the_form_href_and_the_key_href_are_one_string() {
+        use crate::fragment::submit::form_href;
+        // (base, q, c, mode, passage) → the href both spell.
+        let table = [
+            ("", "metta", "", "", "", "/?q=metta"),
+            ("", "a b", "bogus", "bogus", "", "/?q=a+b"),
+            (
+                "/search",
+                " metta ",
+                "mn",
+                "words",
+                "",
+                "/search?q=metta&c=mn&mode=words",
+            ),
+            ("/search", "metta", "all", "both", "", "/search?q=metta"),
+            (
+                "/search",
+                "metta",
+                "",
+                "meaning",
+                "",
+                "/search?q=metta&mode=meaning",
+            ),
+            (
+                "/search",
+                "karuna",
+                "sn",
+                "",
+                "2",
+                "/search?q=karuna&c=sn&passage=2",
+            ),
+            ("/search", "", "", "", "2", "/search?passage=2"),
+            ("/search", "  ", "", "", "", "/search"),
+            ("", "", "", "", "", "/"),
+        ];
+        for (base, q, c, mode, passage, want) in table {
+            let mut params = ParamsMap::new();
+            for (name, value) in [("q", q), ("c", c), ("mode", mode), ("passage", passage)] {
+                params.insert(name, value.to_owned());
+            }
+            let key = SearchKey::read(&params, Language::En);
+            assert_eq!(
+                key.href(base),
+                want,
+                "key {base} {q:?} {c} {mode} {passage}"
+            );
+            assert_eq!(
+                form_href(base, q, c, mode, passage),
+                want,
+                "form {base} {q:?} {c} {mode} {passage}"
+            );
+        }
     }
 
     use crate::catalogue::strings;

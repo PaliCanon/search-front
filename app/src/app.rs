@@ -6,7 +6,6 @@
 use leptos::prelude::*;
 use leptos_i18n::td_string;
 use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
-use leptos_router::SsrMode;
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_location;
 use leptos_router::path;
@@ -18,8 +17,9 @@ use palicanon_ui_lib::{
 use crate::catalogue::strings;
 use crate::components::not_found::NotFoundPage;
 use crate::components::site_footer::SiteFooter;
-use crate::page::SearchPage;
+use crate::fragment::{SearchProvider, SearchRoutes};
 use crate::pages::{FooterPage, PageKind};
+use crate::search::site::SiteBackend;
 
 /// The branch this build came from (`build.rs`,
 /// `SEARCH_FRONT_GIT_BRANCH`, from git, or from the `BUILD_BRANCH` the
@@ -107,24 +107,29 @@ fn nav(current: Signal<String>) -> NavList {
 fn Layout() -> impl IntoView {
     let location = use_location();
     view! {
-        <AppShell nav=nav(location.pathname.into()) footer=|| view! { <SiteFooter /> }>
-            <Routes fallback=|| view! { <NotFoundPage /> }>
-                <Route path=path!("/") view=SearchPage ssr=SsrMode::Async />
-                <Route
-                    path=path!("/acknowledgements")
-                    view=|| view! { <FooterPage kind=PageKind::Acknowledgements /> }
-                />
-                <Route path=path!("/terms") view=|| view! { <FooterPage kind=PageKind::Terms /> } />
-                <Route
-                    path=path!("/privacy")
-                    view=|| view! { <FooterPage kind=PageKind::Privacy /> }
-                />
-                <Route
-                    path=path!("/support")
-                    view=|| view! { <FooterPage kind=PageKind::Support /> }
-                />
-            </Routes>
-        </AppShell>
+        <SearchProvider backend=SiteBackend::new()>
+            <AppShell nav=nav(location.pathname.into()) footer=|| view! { <SiteFooter /> }>
+                <Routes fallback=|| view! { <NotFoundPage /> }>
+                    <SearchRoutes />
+                    <Route
+                        path=path!("/acknowledgements")
+                        view=|| view! { <FooterPage kind=PageKind::Acknowledgements /> }
+                    />
+                    <Route
+                        path=path!("/terms")
+                        view=|| view! { <FooterPage kind=PageKind::Terms /> }
+                    />
+                    <Route
+                        path=path!("/privacy")
+                        view=|| view! { <FooterPage kind=PageKind::Privacy /> }
+                    />
+                    <Route
+                        path=path!("/support")
+                        view=|| view! { <FooterPage kind=PageKind::Support /> }
+                    />
+                </Routes>
+            </AppShell>
+        </SearchProvider>
     }
 }
 

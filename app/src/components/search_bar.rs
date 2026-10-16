@@ -5,12 +5,12 @@
 //! sit under the header and join the form by its `id`,
 //! [`SEARCH_FORM_ID`]). A submit re-renders the whole page with the new
 //! `?q=&c=&mode=`, exactly what the server already does for a shared
-//! link: no JavaScript needed. `/` focuses the field once hydrated
+//! link: no JavaScript needed. `/` focuses the field once in the browser
 //! ([`is_focus_shortcut`]); "⌘K" / "Ctrl+K" works from anywhere, even
 //! while typing elsewhere on the page.
 
 use leptos::prelude::*;
-#[cfg(feature = "hydrate")]
+#[cfg(feature = "browser")]
 use leptos::web_sys;
 use leptos_i18n::td_string;
 
@@ -26,11 +26,11 @@ pub const SEARCH_FORM_ID: &str = "search-form";
 /// Whether this keydown should focus and select the search field: `/`
 /// outside any other field being typed into, or `k` with ⌘/Ctrl held,
 /// from anywhere (mirrors today's site, `SearchBar.tsx`). Only called
-/// from [`install_focus_shortcut`]'s hydrate-only listener; an `ssr`-only
-/// build (no `hydrate`, no `test`) never calls it, hence the explicit
+/// from [`install_focus_shortcut`]'s browser-only listener; an `ssr`-only
+/// build (no `browser`, no `test`) never calls it, hence the explicit
 /// allow rather than a true dead function.
 #[must_use]
-#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+#[cfg_attr(not(feature = "browser"), allow(dead_code))]
 pub(crate) fn is_focus_shortcut(key: &str, modifier_held: bool, already_typing: bool) -> bool {
     (key == "k" && modifier_held) || (key == "/" && !already_typing)
 }
@@ -46,6 +46,10 @@ pub fn SearchBar(
     mode: Mode,
     /// The collection `?c=` resolved to.
     collection: Collection,
+    /// Whether Meaning and Both can be served now: the mode dropdown is not
+    /// rendered while it is false (Words is all there is), and appears when
+    /// it turns true.
+    meaning: Signal<bool>,
 ) -> impl IntoView {
     let t = strings();
     let input_ref = NodeRef::<leptos::html::Input>::new();
@@ -61,7 +65,7 @@ pub fn SearchBar(
             submit_label=Signal::derive(move || td_string!(t.locale(), search_submit).to_owned())
         >
             <CollectionSelect value=collection />
-            <ModeSelect value=mode />
+            {move || meaning.get().then(|| view! { <ModeSelect value=mode /> })}
         </SearchCard>
     }
 }
@@ -94,10 +98,10 @@ pub fn ResultsSearchBar(
 /// Browser only: `/` or ⌘K/Ctrl+K focuses and selects the search field.
 /// No-op during SSR (there is no window, and no listener to leak either).
 fn install_focus_shortcut(input_ref: NodeRef<leptos::html::Input>) {
-    #[cfg(feature = "hydrate")]
+    #[cfg(feature = "browser")]
     {
         use wasm_bindgen::JsCast;
-        let _ = leptos::prelude::window_event_listener(leptos::ev::keydown, move |ev| {
+        let handle = leptos::prelude::window_event_listener(leptos::ev::keydown, move |ev| {
             let typing = ev
                 .target()
                 .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
@@ -112,8 +116,12 @@ fn install_focus_shortcut(input_ref: NodeRef<leptos::html::Input>) {
                 }
             }
         });
+        // The listener lives on `window`, not in the page: it goes with the
+        // field (a remount would otherwise stack another, and it would
+        // outlive the page).
+        on_cleanup(move || handle.remove());
     }
-    #[cfg(not(feature = "hydrate"))]
+    #[cfg(not(feature = "browser"))]
     let _ = input_ref;
 }
 

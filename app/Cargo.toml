@@ -1,6 +1,6 @@
 [package]
 name = "search_front"
-description = "search-front: the PaliCanon search page, Leptos SSR + hydrate on palicanon-ui-lib."
+description = "search-front: the PaliCanon search page, Leptos SSR + hydrate on palicanon-ui-lib, and a client-side fragment for the PaliCanon app."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -30,6 +30,9 @@ palicanon-api-client = { git = "ssh://git@github.com/PaliCanon/api.git", branch 
 subtle = { version = "2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
+# The in-place submit reads the submitted form (`FormData`), csr only
+# (`fragment::submit`); already in the tree through leptos.
+web-sys = { version = "0.3", optional = true, features = ["FormData", "HtmlFormElement"] }
 # The browser clock for the day index (`components::home::now_ms`); already
 # in the tree through leptos.
 js-sys = { version = "0.3", optional = true }
@@ -52,15 +55,47 @@ serde_json = "1"
 futures = "0.3"
 any_spawner = { version = "0.3", features = ["tokio"] }
 
+# The browser tests of the fragment (tests/csr.rs, tests/csr_mount.rs), run by
+# wasm-bindgen-test-runner in a headless Chrome; the extra web-sys features
+# build the events and read the page.
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+  "History",
+  "HtmlDocument",
+  "HtmlInputElement",
+  "KeyboardEvent",
+  "KeyboardEventInit",
+  "Location",
+  "NodeList",
+] }
+
 [features]
+# The site (search.palicanon.app): the server renders, the browser hydrates.
+# Built with exactly one of the three modes below, never two (no
+# `--all-features`; ci.yml has one clippy entry per mode).
+#
+# `site` is private: the site's own code (its shell, the footer pages, the
+# server function and the backend that calls it). `ssr` and `hydrate` imply
+# it; `csr` never does, so the PaliCanon app's build holds no endpoint, no
+# API client and no token (tests/cfg_gates.rs).
+site = []
+# Private: the code that needs a browser (the focus shortcut, the browser
+# clock), shared by the two client modes. Never gate it on `hydrate`.
+browser = ["dep:wasm-bindgen", "dep:js-sys"]
 hydrate = [
   "leptos/hydrate",
   "palicanon-ui-lib/hydrate",
+  "site",
+  "browser",
   "dep:console_error_panic_hook",
-  "dep:wasm-bindgen",
-  "dep:js-sys",
 ]
+# The PaliCanon app: the browser builds the page from an empty document, no
+# server (the fragment, `crate::fragment`, mounted by the app's own host).
+csr = ["leptos/csr", "palicanon-ui-lib/csr", "browser", "dep:web-sys"]
 ssr = [
+  "site",
   "dep:axum",
   "dep:tokio",
   "dep:leptos_axum",

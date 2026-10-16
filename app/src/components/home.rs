@@ -11,6 +11,7 @@ use leptos::prelude::*;
 use leptos_i18n::td_string;
 
 use crate::catalogue::{Locale, strings};
+use crate::links::Base;
 use crate::ui::chip_links::{ChipLink, ChipLinks};
 use crate::ui::icon_links::{IconLink, IconLinks};
 use crate::ui::passage::{AnotherLink, Passage};
@@ -93,10 +94,13 @@ pub fn Brand() -> impl IntoView {
 /// `brand`). Hidden on a phone, where the shell's top bar already shows
 /// them.
 #[component]
-pub fn BrandLink() -> impl IntoView {
+pub fn BrandLink(
+    /// Where the fragment is mounted: the link goes to its page.
+    base: Base,
+) -> impl IntoView {
     view! {
         <a
-            href="/"
+            href=move || base.path()
             class="hidden shrink-0 items-center gap-2 font-serif text-lg font-semibold text-heading select-none sm:flex"
         >
             <img src="/lotus.png" alt="" width="22" height="22" />
@@ -167,6 +171,8 @@ pub(crate) fn now_ms() -> i64 {
 /// of the pool.
 #[component]
 pub fn Examples(
+    /// Where the fragment is mounted: the links run a query on its page.
+    base: Base,
     /// The day to show (tests); today's by default.
     #[prop(optional)]
     day: Option<usize>,
@@ -179,7 +185,7 @@ pub fn Examples(
             .map(|offset| labels[(start + offset) % POOL])
             .map(|label| ChipLink {
                 label: label.to_owned(),
-                href: format!("/?q={}", form_encode(label)),
+                href: base.href(&[("q", label)]),
             })
             .collect();
         view! { <ChipLinks chips=chips aria_label=td_string!(t.locale(), examples_label) /> }
@@ -209,6 +215,8 @@ pub(crate) fn form_encode(text: &str) -> String {
 /// the app and social links beside it, a refresh link to the next verse.
 #[component]
 pub fn DailyPassage(
+    /// Where the fragment is mounted: the refresh link goes to its page.
+    base: Base,
     /// The raw `?passage=` value, if any.
     #[prop(into)]
     raw: String,
@@ -232,7 +240,7 @@ pub fn DailyPassage(
                 attribution=verse.translator
                 href=format!("https://suttacentral.net/{}/en/sujato", verse.uid)
                 another=AnotherLink {
-                    href: format!("/?passage={next}"),
+                    href: base.href(&[("passage", &next.to_string())]),
                     label: td_string!(t.locale(), passage_another).to_owned(),
                 }
             >
@@ -287,7 +295,7 @@ mod tests {
     ];
 
     fn render_examples(day: usize) -> String {
-        Owner::new().with(|| view! { <Examples day=day /> }.to_html())
+        Owner::new().with(|| view! { <Examples base=Base::fixed("") day=day /> }.to_html())
     }
 
     #[test]
@@ -317,6 +325,24 @@ mod tests {
         }
     }
 
+    /// G5: at the app's base the examples and the verse's refresh link stay
+    /// under it, and no link leaves it.
+    #[test]
+    fn the_examples_and_the_passage_links_carry_the_base() {
+        let examples = Owner::new()
+            .with(|| view! { <Examples base=Base::fixed("/search") day=7 /> }.to_html());
+        assert_eq!(
+            examples.matches(r#"href="/search?q="#).count(),
+            3,
+            "{examples}"
+        );
+        assert!(!examples.contains(r#"href="/?q="#), "{examples}");
+        let passage = Owner::new()
+            .with(|| view! { <DailyPassage base=Base::fixed("/search") raw="" day=2 /> }.to_html());
+        assert!(passage.contains(r#"href="/search?passage=3""#), "{passage}");
+        assert!(!passage.contains(r#"href="/?passage"#), "{passage}");
+    }
+
     #[test]
     fn the_examples_pool_has_todays_sites_six_and_three_more() {
         assert_eq!(example_labels(Locale::en), EN_POOL);
@@ -324,10 +350,12 @@ mod tests {
 
     #[test]
     fn the_verse_of_the_day_shows_without_a_passage_and_a_valid_one_beats_it() {
-        let html = Owner::new().with(|| view! { <DailyPassage raw="" day=2 /> }.to_html());
+        let html = Owner::new()
+            .with(|| view! { <DailyPassage base=Base::fixed("") raw="" day=2 /> }.to_html());
         assert!(html.contains(VERSES[2].lines[0]), "{html}");
         assert!(html.contains(r#"href="/?passage=3""#), "{html}");
-        let html = Owner::new().with(|| view! { <DailyPassage raw="1" day=2 /> }.to_html());
+        let html = Owner::new()
+            .with(|| view! { <DailyPassage base=Base::fixed("") raw="1" day=2 /> }.to_html());
         assert!(html.contains(VERSES[1].lines[0]), "{html}");
         assert!(html.contains(r#"href="/?passage=2""#), "{html}");
     }

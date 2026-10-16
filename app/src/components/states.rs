@@ -7,6 +7,7 @@
 use leptos::prelude::*;
 
 use crate::catalogue::strings;
+use crate::links::Retry;
 
 /// The backend could not answer: any failure but a cold engine or a rate
 /// limit.
@@ -65,6 +66,14 @@ pub fn RateLimitedState(
 /// The alerts' box: the same as [`ErrorState`]'s.
 const ALERT: &str = "mt-10 max-w-[60ch] space-y-2";
 
+/// A click on a Retry link: asks the same search again when the page keeps
+/// count of it (the page does; a state rendered alone does not).
+fn ask_again(retry: Option<Retry>) {
+    if let Some(retry) = retry {
+        retry.bump();
+    }
+}
+
 /// The plain link that asks the same search again: a real `<a href>`, no
 /// script (the page it points at answers with whatever the engine says
 /// then).
@@ -74,8 +83,15 @@ fn RetryLink(
     href: String,
 ) -> impl IntoView {
     let t = strings();
+    // The link goes to the URL the page may already be at (the router then
+    // does nothing): the click also asks the search again.
+    let retry = use_context::<Retry>();
     view! {
-        <a href=href class="inline-block text-gold underline underline-offset-4 hover:text-heading">
+        <a
+            href=href
+            class="inline-block text-gold underline underline-offset-4 hover:text-heading"
+            on:click=move |_| ask_again(retry)
+        >
             {move || leptos_i18n::td_string!(t.locale(), retry_link)}
         </a>
     }
@@ -86,6 +102,20 @@ mod tests {
     use palicanon_ui_lib::Language;
 
     use super::*;
+
+    /// Following the Retry link bumps the page's count; alone it does nothing.
+    #[test]
+    fn a_retry_click_bumps_the_pages_count() {
+        Owner::new().with(|| {
+            let retry = Retry::new();
+            assert_eq!(retry.get_untracked(), 0);
+            ask_again(Some(retry));
+            ask_again(Some(retry));
+            assert_eq!(retry.get_untracked(), 2);
+            ask_again(None);
+            assert_eq!(retry.get_untracked(), 2);
+        });
+    }
 
     #[test]
     fn the_error_state_is_announced_as_an_alert() {

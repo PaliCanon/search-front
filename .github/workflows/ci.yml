@@ -5,7 +5,8 @@
 # action puts ui-lib and the api beside it with a short-lived GitHub App
 # token (no deploy key, no credential left in any .git/config). Cargo steps
 # run in `search-front/` (`defaults.run`). No `--all-features`, no
-# `--workspace`: `ssr` and `hydrate` do not build together.
+# `--workspace`: `ssr`, `hydrate` and `csr` (the PaliCanon app's build) do not
+# build together.
 #
 # Repository secrets used: APP_ID, APP_PRIVATE_KEY (the GitHub App, Contents:
 # read on ui-lib, api and search-front), CODECOV_TOKEN (optional).
@@ -58,6 +59,10 @@ jobs:
             args: -p search_front --features ssr --all-targets
           - feature: hydrate
             args: -p search_front --lib --features hydrate --target wasm32-unknown-unknown
+          # The PaliCanon app's build (task 021): csr alone, on wasm32, with
+          # the browser tests' code (tests/csr.rs, tests/csr_mount.rs).
+          - feature: csr
+            args: -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --all-targets
     steps:
       - uses: actions/checkout@v7
         with:
@@ -87,6 +92,55 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --locked -p search_front --features ssr
+
+  # tests/csr.rs and tests/csr_mount.rs (task 021) in a real browser: the
+  # Search fragment mounted under /search, as the PaliCanon app mounts it.
+  # wasm-bindgen-test-runner drives a headless Chrome through chromedriver;
+  # ubuntu-latest ships Google Chrome and its matching chromedriver
+  # ($CHROMEWEBDRIVER). The runner must be the wasm-bindgen of Cargo.lock.
+  # The two test wasms are the csr bundles the second check reads: each holds
+  # the fragment and no server function, no endpoint, no token path. The PaliCanon
+  # app's own bundle is checked by the app (T5a) with the same script.
+  test-browser:
+    name: test (csr, headless Chrome) and the csr bundles
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: search-front
+          persist-credentials: false
+      - uses: ./search-front/.github/actions/siblings
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - id: wasm-bindgen
+        run: |
+          set -euo pipefail
+          version="$(cargo pkgid --locked wasm-bindgen | sed 's/.*@//')"
+          if [ -z "$version" ]; then
+            echo "::error::no wasm-bindgen version in Cargo.lock"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ steps.wasm-bindgen.outputs.version }}
+      - run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test csr --test csr_mount
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+      # Each csr test bundle's wasm-bindgen output: no token, no API client,
+      # no mock, and none of the site's endpoint (BUNDLE_MODE=csr).
+      - name: The csr bundles hold no token path
+        run: |
+          set -euo pipefail
+          for target in csr csr_mount; do
+            wasm="$(cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test "$target" --no-run --message-format=json | python3 -c 'import json,sys; target = sys.argv[1]; print(next(m["executable"] for m in map(json.loads, sys.stdin) if m.get("reason") == "compiler-artifact" and m["target"]["name"] == target and m.get("executable")))' "$target")"
+            wasm-bindgen --target web --out-dir "pkg-$target" "$wasm"
+            BUNDLE_MODE=csr PKG_DIR="pkg-$target" scripts/check-wasm-no-token.sh
+          done
 
   docs:
     name: rustdoc

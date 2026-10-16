@@ -19,6 +19,7 @@ use super::{
 };
 use crate::catalogue::{Strings, strings};
 use crate::components::home::BrandLink;
+use crate::links::Base;
 
 const H2: &str = "mt-10 font-serif text-xl font-semibold text-heading";
 const P: &str = "mt-3 max-w-[66ch] text-[15px] leading-7 text-ink";
@@ -90,7 +91,7 @@ fn Header(t: Strings) -> impl IntoView {
                     <path d="M13 8H3M7 4 3 8l4 4" />
                 </svg>
             </a>
-            <BrandLink />
+            <BrandLink base=Base::root() />
         </header>
     }
 }

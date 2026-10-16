@@ -9,11 +9,17 @@
 
 #[cfg(feature = "ssr")]
 pub(crate) mod adapt;
+pub mod backend;
+#[cfg(all(test, feature = "ssr"))]
+pub(crate) mod fake;
 #[cfg(feature = "ssr")]
 pub mod mock;
 #[cfg(feature = "ssr")]
 pub(crate) mod real;
+#[cfg(feature = "site")]
 pub mod server;
+#[cfg(feature = "site")]
+pub mod site;
 #[cfg(feature = "ssr")]
 pub(crate) mod source;
 #[cfg(all(test, feature = "ssr"))]

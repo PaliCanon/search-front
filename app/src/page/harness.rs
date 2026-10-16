@@ -14,7 +14,9 @@ use leptos_router::path;
 use palicanon_ui_lib::Language;
 
 use super::SearchPage;
+use crate::fragment::SearchProvider;
 use crate::search::mock::MockSource;
+use crate::search::site::SiteBackend;
 use crate::search::source::Source;
 
 /// What a render is given besides the URL: the search source, the app's
@@ -51,9 +53,11 @@ pub(super) async fn render(path: &str, setup: Setup) -> String {
         }
         view! {
             <Router>
-                <Routes fallback=|| "not found">
-                    <Route path=path!("/") view=SearchPage />
-                </Routes>
+                <SearchProvider backend=SiteBackend::new()>
+                    <Routes fallback=|| "not found">
+                        <Route path=path!("/") view=SearchPage />
+                    </Routes>
+                </SearchProvider>
             </Router>
         }
     })
@@ -122,5 +126,28 @@ pub(super) async fn render_in(language: Language, path: &str) -> String {
             ..Setup::default()
         },
     )
+    .await
+}
+
+/// Renders [`SearchPage`] at `path` inside a [`SearchProvider`] for
+/// `backend`: the page through the trait, with no server function, no
+/// source and no response options in the context.
+pub(super) async fn render_with<B: crate::search::backend::SearchBackend>(
+    path: &str,
+    backend: B,
+) -> String {
+    render_view(|| {
+        palicanon_ui_lib::provide_language().set(Language::En);
+        provide_context(RequestUrl::new(path));
+        view! {
+            <Router>
+                <SearchProvider backend=backend>
+                    <Routes fallback=|| "not found">
+                        <Route path=path!("/") view=SearchPage />
+                    </Routes>
+                </SearchProvider>
+            </Router>
+        }
+    })
     .await
 }

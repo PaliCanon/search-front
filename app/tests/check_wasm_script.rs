@@ -40,10 +40,20 @@ impl Pkg {
 
     /// The script run on this directory, with an optional canary as `$1`.
     fn check(&self, canary: Option<&str>) -> Output {
+        self.check_in(None, canary)
+    }
+
+    /// The script run on this directory in `BUNDLE_MODE=mode` (`None`: the
+    /// variable is not set, the site's bundle).
+    fn check_in(&self, mode: Option<&str>, canary: Option<&str>) -> Output {
         let script =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/check-wasm-no-token.sh");
         let mut command = Command::new("bash");
         command.arg(script).env("PKG_DIR", &self.0);
+        command.env_remove("BUNDLE_MODE");
+        if let Some(mode) = mode {
+            command.env("BUNDLE_MODE", mode);
+        }
         if let Some(canary) = canary {
             command.arg(canary);
         }
@@ -250,4 +260,59 @@ fn the_script_reads_the_shape_from_token_pattern() {
         stderr(&out)
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The server function's endpoint, which the site's hydrate bundle holds
+/// (it is how the browser searches) and the app's csr bundle must not.
+const ENDPOINT: &str = "/api/search_passages";
+
+/// Task 021: the endpoint string fails a csr bundle (`BUNDLE_MODE=csr`) and
+/// names the file and the needle; the site's own bundle, where it is
+/// legitimate, passes.
+#[test]
+fn the_endpoint_fails_a_csr_bundle_but_not_the_site_s() {
+    let pkg = Pkg::with("endpoint", &format!("fetch('{ENDPOINT}');"));
+    let site = pkg.check(None);
+    assert_eq!(site.status.code(), Some(0), "site: {}", stderr(&site));
+    let site = pkg.check_in(Some("site"), None);
+    assert_eq!(site.status.code(), Some(0), "site: {}", stderr(&site));
+    let csr = pkg.check_in(Some("csr"), None);
+    assert_eq!(csr.status.code(), Some(1), "csr: {}", stderr(&csr));
+    assert!(stderr(&csr).contains(ENDPOINT), "{}", stderr(&csr));
+    assert!(stderr(&csr).contains("a.js"), "{}", stderr(&csr));
+}
+
+/// A csr bundle is checked for every needle of the site's, plus the
+/// endpoint; a clean one passes, with the success line naming the mode.
+#[test]
+fn a_csr_bundle_keeps_every_needle_and_a_clean_one_passes() {
+    for needle in NEEDLES {
+        let pkg = Pkg::with("csr-needle", &format!("before {needle} after"));
+        let out = pkg.check_in(Some("csr"), None);
+        assert_eq!(out.status.code(), Some(1), "{needle}: {}", stderr(&out));
+        assert!(stderr(&out).contains(needle), "{needle}: {}", stderr(&out));
+    }
+    let pkg = Pkg::with("csr-clean", "console.log('hello');");
+    let out = pkg.check_in(Some("csr"), None);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
+
+/// A mode the script does not know, or an empty one (a CI variable that
+/// expanded to nothing), is exit 2, never a silent pass of the site's needles
+/// on an app's bundle. Only an unset `BUNDLE_MODE` is the site.
+#[test]
+fn an_empty_or_unknown_bundle_mode_is_exit_two() {
+    let pkg = Pkg::with("mode", &format!("fetch('{ENDPOINT}');"));
+    for mode in ["cs", "", "CSR", "csr "] {
+        let out = pkg.check_in(Some(mode), None);
+        assert_eq!(out.status.code(), Some(2), "{mode:?}: {}", stderr(&out));
+        assert!(stderr(&out).contains("BUNDLE_MODE"), "{}", stderr(&out));
+    }
+    let out = pkg.check_in(None, None);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "unset is the site: {}",
+        stderr(&out)
+    );
 }
