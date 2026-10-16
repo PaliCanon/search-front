@@ -92,7 +92,7 @@ Nothing here has been applied yet (task 007 wrote it, did not run it).
 
    ```sh
    gcloud auth application-default login
-   export CLOUDFLARE_API_TOKEN=$(security find-generic-password -a lsh -s cloudflare-api-token -w)
+   export CLOUDFLARE_API_TOKEN=$(security find-generic-password -a lsh -s cloudflare-api-token-palicanon -w)
    ```
 
 5. In `infra/`: `tofu init`, then a **targeted** apply of the two secrets,
