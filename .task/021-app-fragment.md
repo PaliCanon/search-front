@@ -1,6 +1,6 @@
 # 021 Search runs inside the PaliCanon app
 
-status: review · rank: 7 · level: hard · type: feature · request: app-001-palicanon-app T8 (user, 2026-10-16: "occupe toi du search alors"; "Tout en local") · session: search-front-021-app-fragment · after: [020] · ui-lib: v0.3.0
+status: merged · rank: 7 · level: hard · type: feature · request: app-001-palicanon-app T8 (user, 2026-10-16: "occupe toi du search alors"; "Tout en local") · session: search-front-021-app-fragment · after: [020] · ui-lib: v0.3.0
 
 ## Summary
 Rank (rank.md): difficulty 7 (a new build mode around a page that renders SsrMode::Async through a server fn, the shell split from the screens, a backend abstraction with a new outcome, a token that must stay server-only), impact 7 (search.palicanon.app's every search, and the app's Search) → 7.
@@ -11,7 +11,7 @@ Design v1 (mirrors learn-pali 048): a csr feature; a public Search fragment (Sea
 ## Workflow
 ```mermaid
 flowchart LR
-  Define["Define ✓ validated"]:::done --> Plan["Plan ✓ one lane"]:::done --> Build["Build ✓ 11 commits"]:::done --> Verify["Verify ✓ local list"]:::done --> Review["Review ✓ round 1; round 2 waived by the user"]:::done --> Check["Check ✓ orchestrator"]:::done --> Merge:::todo --> Retro:::todo
+  Define["Define ✓ validated"]:::done --> Plan["Plan ✓ one lane"]:::done --> Build["Build ✓ 11 commits"]:::done --> Verify["Verify ✓ local list"]:::done --> Review["Review ✓ round 1; round 2 waived by the user"]:::done --> Check["Check ✓ orchestrator"]:::done --> Merge["Merge ✓ ce827b6"]:::done --> Retro:::todo
   classDef doing fill:#f9a825,color:#000
   classDef done fill:#2e7d32,color:#fff
   classDef todo fill:#9e9e9e,color:#fff
@@ -33,6 +33,7 @@ flowchart LR
 | Build (vendor) | done | a1628e2: placeholders.rs vendored into app/build (until ui-lib 068), so the crate builds from a git checkout; build and tests exit 0 (314) |
 | Rule (user) | — | 2026-10-16: «Fusionner sans dernier tour» — merged without review round 2; the round runs after the merge and its findings become a follow-up task |
 | Check | done | orchestrator: the Fix 1 local list (all exit 0, MSRV 1.91.1, coverage lines 98.83%) plus a1628e2's build and tests; the site's documents identical (build) but for shorter retry links |
+| Merge | done | ce827b6 on main (squash), pushed; tag fragment-v0.1.0 for the PaliCanon app (a v* tag would deploy prod) |
 
 ## Design
 Viewer: search-front-021-app-fragment/design (d15a1fc68949346), v5 — v4 validated by the user 2026-10-16, v5 = two wordings ruled on the build (the superseded answer; a submit keeps the asked fields).
@@ -73,3 +74,4 @@ Voices: deep (9762, 9786, 9803, 9823), sage (9842, 9855, 9870, 9885). Rulings (o
 Ruled out: `--all-targets` for csr clippy (a superset, ruled at the build); `Base::fixed` for the footer pages (they live at the root, outside the fragment); the provider `expect` panic (documented, as learn-pali 048); the ask/resolve rule's location (internal); a Words answer landing after Both (Leptos runs a Resource's fetches in order: unreachable); `/` typed while the field is focused (the browser's own behaviour).
 
 ## Merge
+ce827b6 (fragment-v0.1.0)
