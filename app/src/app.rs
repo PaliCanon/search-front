@@ -84,17 +84,33 @@ pub fn App() -> impl IntoView {
     }
 }
 
-/// This service's one rail entry.
+/// The rail's entries: the services, Search (this one, the current entry on
+/// `/`), Learn, then Map. The same three, in the same order and with the same
+/// hrefs, as learn-pali's and vizualisation's rails.
 fn nav(current: Signal<String>) -> NavList {
     let t = strings();
     let sections = Signal::derive(move || {
         vec![NavSection {
             title: None,
-            entries: vec![NavEntry {
-                label: td_string!(t.locale(), nav_search),
-                icon: IconName::Search,
-                href: "/",
-            }],
+            entries: vec![
+                NavEntry {
+                    label: td_string!(t.locale(), nav_search),
+                    icon: IconName::Search,
+                    href: "/",
+                },
+                // `IconName::Grid` and `IconName::Motion` stand in until ui-lib
+                // has Learn and Map icons, as in learn-pali and vizualisation.
+                NavEntry {
+                    label: td_string!(t.locale(), nav_learn),
+                    icon: IconName::Grid,
+                    href: "https://learn.palicanon.app",
+                },
+                NavEntry {
+                    label: td_string!(t.locale(), nav_map),
+                    icon: IconName::Motion,
+                    href: "https://map.palicanon.app",
+                },
+            ],
         }]
     });
     NavList::new(sections, current)
@@ -181,6 +197,46 @@ mod tests {
                 let footer = html.find("<footer").expect(&html);
                 assert!(h1 < footer, "{path} {language:?}: {html}");
                 assert!(!html.contains("Not found."), "{html}");
+            }
+        }
+    }
+
+    /// The rail lists the three services, Search, Learn, Map, in that order,
+    /// labelled in each language; only Search (`/`) is current on the home,
+    /// the other two are plain external links.
+    #[tokio::test]
+    async fn the_rail_lists_search_then_learn_then_map() {
+        use palicanon_ui_lib::Language;
+        // The home spawns the search's resources: an executor, whichever
+        // test runs first (harness::render_view does the same).
+        let _ = any_spawner::Executor::init_tokio();
+        for (language, labels) in [
+            (Language::En, ["Search", "Learn", "Map"]),
+            (Language::Fr, ["Recherche", "Apprendre", "Carte"]),
+            (Language::Vi, ["Tìm kiếm", "Học", "Bản đồ"]),
+        ] {
+            let html = render_layout(language, "/");
+            let at = |href: &str| {
+                html.find(&format!(r#"href="{href}""#))
+                    .unwrap_or_else(|| panic!("{href}: {html}"))
+            };
+            let search = at("/");
+            let learn = at("https://learn.palicanon.app");
+            let map = at("https://map.palicanon.app");
+            assert!(search < learn && learn < map, "{language:?}: {html}");
+            for label in labels {
+                assert!(
+                    html.contains(&format!(">{label}</span>")),
+                    "{label}: {html}"
+                );
+            }
+            for href in ["https://learn.palicanon.app", "https://map.palicanon.app"] {
+                let open = html[..at(href)].rfind("<a").expect(&html);
+                let close = open + html[open..].find('>').expect(&html);
+                assert!(
+                    !html[open..close].contains("aria-current"),
+                    "{href}: {html}"
+                );
             }
         }
     }
