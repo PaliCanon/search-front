@@ -1,6 +1,6 @@
 # 022 Support page: the tools to discover the Canon (search, learn, map)
 
-status: merging · rank: 5 · level: standard · type: feature · after: [] (021 paused, 022 first: process #10117) · session: search-front-022-support-tools · process: ../../docs/workflows/development-process.mmd
+status: merged · rank: 5 · level: standard · type: feature · after: [] (021 paused, 022 first: process #10117) · session: search-front-022-support-tools · process: ../../docs/workflows/development-process.mmd
 
 ## Summary
 Rank: difficulty 4 (three showcase blocks on one page, content in three languages, screenshots and carousels reused from ui-lib's Carousel; the learn and map screenshots exist in www's design task), impact 5 (the Support page is linked from every page's footer) → 5. Orchestrator: a Sonnet lead; design on Opus.
@@ -133,3 +133,6 @@ Graph v3; deep #10442, sage #10477 (a changelog, T none: counts as a reading, de
 - deep Δ (G5 in its own test; `learn-5` keyword "word to find"): wording; the parenthesis of G3 allowed the keyword.
 - Reviewer finding: the voices' window is 60k characters (8k per message, oldest dropped), not "the last ten messages" — a docs fix (review.md §4, tools/viewer.md) at the retro.
 | Fix round 3 read | done | orchestrator, 2026-10-16: diff 1ce99be..1516478 read — SEARCH_ID const and gate, the alts-translated assertion, the search tool's pairing table, `assert_external_button` on fr/vi, the two search-button tests folded; as ruled H1–H4; three rounds done, no fourth voice round (process.md). Merge. |
+
+## Merge
+a420099 on main, 2026-10-16.
