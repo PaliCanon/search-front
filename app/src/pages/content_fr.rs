@@ -4,7 +4,7 @@
 //! pointers to it dropped — task 001, fix round 4; AI mentions removed —
 //! task 004). Data, not code: regenerate rather than edit by hand.
 
-use super::{AppBlock, Cta, InstagramBlock, PageText, Pages, SearchBlock, Section, Table};
+use super::{AppBlock, Cta, Href, InstagramBlock, PageText, Pages, Section, Table, ToolBlock};
 
 /// Every footer page, in this language.
 pub(super) const PAGES: Pages = Pages {
@@ -14,7 +14,7 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon est un moteur de recherche, pas une source. Tout ce qu’il vous permet de trouver a été réalisé par d’autres et offert ; cette page dit par qui, et sous quelle licence.",
         ],
-        search: None,
+        tools: &[],
         app: None,
         instagram: None,
         sections: &[
@@ -63,7 +63,7 @@ pub(super) const PAGES: Pages = Pages {
             "Cette traduction est fournie pour votre confort ; en cas de divergence, la version anglaise prévaut.",
             "Les présentes conditions régissent votre utilisation de PaliCanon (le « Service »), édité par Thibault Rivière (l’« Éditeur »). En utilisant le Service, vous les acceptez.",
         ],
-        search: None,
+        tools: &[],
         app: None,
         instagram: None,
         sections: &[
@@ -122,7 +122,7 @@ pub(super) const PAGES: Pages = Pages {
             "Cette traduction est fournie pour votre confort ; en cas de divergence, la version anglaise prévaut.",
             "Voici l’information requise par le Règlement général sur la protection des données (RGPD). Le responsable du traitement est Thibault Rivière, contact riviere.thibault@icloud.com. PaliCanon n’a pas de comptes, ne dépose aucun cookie et n’utilise ni publicité ni pistage par des tiers.",
         ],
-        search: None,
+        tools: &[],
         app: None,
         instagram: None,
         sections: &[
@@ -191,18 +191,69 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon et l’application Tipiṭaka pour iPhone sont gratuites : pas de publicité, pas de compte, rien de vous à vendre. Une seule personne les conçoit et les fait vivre.",
         ],
-        search: Some(SearchBlock {
-            h: "La recherche",
-            tagline: "Cherchez dans tout le Canon pāli par les mots dont vous vous souvenez ou par ce que vous voulez dire : en anglais, en français et en vietnamien, avec le passage et un lien pour le lire.",
-            cta: "Chercher dans le Canon",
-            alts: &[
-                "L’accueil de la recherche",
-                "Résultats pour une question",
-                "Résultats par mots exacts",
-                "Une recherche en français",
-                "Le thème sombre",
-            ],
-        }),
+        tools: &[
+            ToolBlock {
+                id: "search",
+                h: "La recherche",
+                tagline: "Cherchez dans tout le Canon pāli par les mots dont vous vous souvenez ou par ce que vous voulez dire : en anglais, en français et en vietnamien, avec le passage et un lien pour le lire.",
+                cta: "Chercher dans le Canon",
+                href: Href::Path("/"),
+                shots: &[
+                    "/support/search-home.jpg",
+                    "/support/search-results.jpg",
+                    "/support/search-words.jpg",
+                    "/support/search-french.jpg",
+                    "/support/search-dark.jpg",
+                ],
+                alts: &[
+                    "L’accueil de la recherche",
+                    "Résultats pour une question",
+                    "Résultats par mots exacts",
+                    "Une recherche en français",
+                    "Le thème sombre",
+                ],
+            },
+            ToolBlock {
+                id: "learn",
+                h: "Apprendre le pāli",
+                tagline: "Apprenez la langue des suttas un mot après l’autre, avec des mots tirés du Canon lui-même, revus à un rythme qui suit votre mémoire.",
+                cta: "Commencer à apprendre le pāli",
+                href: Href::Url("https://learn.palicanon.app"),
+                shots: &[
+                    "/support/learn-1.jpg",
+                    "/support/learn-2.jpg",
+                    "/support/learn-3.jpg",
+                    "/support/learn-4.jpg",
+                    "/support/learn-5.jpg",
+                ],
+                alts: &[
+                    "L’accueil d’Apprendre le pāli",
+                    "L’ajout de nouveaux termes au jeu",
+                    "Une carte qui demande le sens d’un mot pāli",
+                    "La réponse, avec une ligne d’un sutta",
+                    "Une ligne de sutta dont il faut retrouver un mot",
+                ],
+            },
+            ToolBlock {
+                id: "map",
+                h: "La carte",
+                tagline: "Voyez le Canon pāli comme une carte en trois dimensions : les suttas reliés par leurs parallèles et par ce qu’ils disent.",
+                cta: "Ouvrir la carte",
+                href: Href::Url("https://map.palicanon.app"),
+                shots: &[
+                    "/support/map-parallels.jpg",
+                    "/support/map-meaning.jpg",
+                    "/support/map-cluster.jpg",
+                    "/support/map-phone.jpg",
+                ],
+                alts: &[
+                    "La vue des parallèles, d’après SuttaCentral",
+                    "La vue par le sens, par embeddings",
+                    "Un sutta et ses plus proches voisins",
+                    "Les collections et le seuil de similarité",
+                ],
+            },
+        ],
         app: Some(AppBlock {
             h: "L’application Tipiṭaka",
             tagline: "Tout le Canon pali sur votre iPhone, hors ligne : pali et traductions côte à côte, un dictionnaire sur chaque mot, des parcours d’étude, des notes — en anglais, en français et en vietnamien.",

@@ -4,7 +4,7 @@
 //! pointers to it dropped — task 001, fix round 4; AI mentions removed —
 //! task 004). Data, not code: regenerate rather than edit by hand.
 
-use super::{AppBlock, Cta, InstagramBlock, PageText, Pages, SearchBlock, Section, Table};
+use super::{AppBlock, Cta, Href, InstagramBlock, PageText, Pages, Section, Table, ToolBlock};
 
 /// Every footer page, in this language.
 pub(super) const PAGES: Pages = Pages {
@@ -14,7 +14,7 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon is a search engine, not a source. Everything it lets you find was made by others and given away; this page says by whom, and under what licence.",
         ],
-        search: None,
+        tools: &[],
         app: None,
         instagram: None,
         sections: &[
@@ -62,7 +62,7 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "These terms govern your use of PaliCanon (the “Service”), published by Thibault Rivière (the “Publisher”). By using the Service you accept them.",
         ],
-        search: None,
+        tools: &[],
         app: None,
         instagram: None,
         sections: &[
@@ -120,7 +120,7 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "This is the privacy notice required by the General Data Protection Regulation (GDPR). The data controller is Thibault Rivière, contact riviere.thibault@icloud.com. PaliCanon has no accounts, sets no cookies, and uses no advertising or third-party tracking.",
         ],
-        search: None,
+        tools: &[],
         app: None,
         instagram: None,
         sections: &[
@@ -184,18 +184,69 @@ pub(super) const PAGES: Pages = Pages {
         intro: &[
             "PaliCanon and the Tipiṭaka app for iPhone are free: no ads, no accounts, nothing about you for sale. One person builds them and keeps them running.",
         ],
-        search: Some(SearchBlock {
-            h: "The search",
-            tagline: "Search the whole Pāli Canon by the words you remember or by what you mean: in English, French and Vietnamese, with the passage and a link to read it.",
-            cta: "Search the Canon",
-            alts: &[
-                "The search's home",
-                "Results for a question",
-                "Results by exact words",
-                "A search in French",
-                "The dark theme",
-            ],
-        }),
+        tools: &[
+            ToolBlock {
+                id: "search",
+                h: "The search",
+                tagline: "Search the whole Pāli Canon by the words you remember or by what you mean: in English, French and Vietnamese, with the passage and a link to read it.",
+                cta: "Search the Canon",
+                href: Href::Path("/"),
+                shots: &[
+                    "/support/search-home.jpg",
+                    "/support/search-results.jpg",
+                    "/support/search-words.jpg",
+                    "/support/search-french.jpg",
+                    "/support/search-dark.jpg",
+                ],
+                alts: &[
+                    "The search's home",
+                    "Results for a question",
+                    "Results by exact words",
+                    "A search in French",
+                    "The dark theme",
+                ],
+            },
+            ToolBlock {
+                id: "learn",
+                h: "Learn Pāli",
+                tagline: "Learn the language of the suttas one word at a time, with words taken from the Canon itself and reviewed at a rhythm that follows your memory.",
+                cta: "Start learning Pāli",
+                href: Href::Url("https://learn.palicanon.app"),
+                shots: &[
+                    "/support/learn-1.jpg",
+                    "/support/learn-2.jpg",
+                    "/support/learn-3.jpg",
+                    "/support/learn-4.jpg",
+                    "/support/learn-5.jpg",
+                ],
+                alts: &[
+                    "The home of Learn Pāli",
+                    "Adding new terms to the deck",
+                    "A card asking the meaning of a Pāli word",
+                    "The answer, with a line from a sutta",
+                    "A sutta line with a word to find",
+                ],
+            },
+            ToolBlock {
+                id: "map",
+                h: "The map",
+                tagline: "See the Pāli Canon as a map in three dimensions: suttas linked by their parallels and by what they say.",
+                cta: "Open the map",
+                href: Href::Url("https://map.palicanon.app"),
+                shots: &[
+                    "/support/map-parallels.jpg",
+                    "/support/map-meaning.jpg",
+                    "/support/map-cluster.jpg",
+                    "/support/map-phone.jpg",
+                ],
+                alts: &[
+                    "The parallels view, after SuttaCentral",
+                    "The meaning view, by embeddings",
+                    "A sutta and its closest neighbours",
+                    "The collections and the similarity threshold",
+                ],
+            },
+        ],
         app: Some(AppBlock {
             h: "The Tipiṭaka app",
             tagline: "The whole Pāli Canon on your iPhone, offline: Pāli and translations side by side, a dictionary on every word, study plans, notes — in English, French and Vietnamese.",

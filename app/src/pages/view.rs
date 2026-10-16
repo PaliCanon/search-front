@@ -1,6 +1,6 @@
 //! A footer page, rendered like today's site's `Pages.tsx`: a header (a
 //! back link home, the brand), the pages' nav with the current one in
-//! gold, then in a 44rem column the title, the intro, Support's two
+//! gold, then in a 44rem column the title, the intro, Support's
 //! showcases, the sections and the "Last updated" line.
 //!
 //! Inside the shell, above the same `SiteFooter` as the search page. A
@@ -14,7 +14,9 @@ use leptos_meta::{Meta, Title};
 use palicanon_ui_lib::Carousel;
 
 use super::rich::{Span, spans};
-use super::{AppBlock, InstagramBlock, PageKind, PageText, SearchBlock, Section, Table, pages};
+use super::{
+    AppBlock, Href, InstagramBlock, PageKind, PageText, SEARCH_ID, Section, Table, ToolBlock, pages,
+};
 use crate::catalogue::{Strings, strings};
 use crate::components::home::BrandLink;
 
@@ -40,15 +42,6 @@ const APP_SHOTS: [&str; 5] = [
     "/support/app-search.jpg",
     "/support/app-concept-graph.jpg",
     "/support/app-notes.jpg",
-];
-
-/// The search's screenshots, in the order of [`SearchBlock::alts`].
-const SEARCH_SHOTS: [&str; 5] = [
-    "/support/search-home.jpg",
-    "/support/search-results.jpg",
-    "/support/search-words.jpg",
-    "/support/search-french.jpg",
-    "/support/search-dark.jpg",
 ];
 
 /// The footer page `kind`, in the app's language.
@@ -139,28 +132,46 @@ fn Body(page: &'static PageText) -> impl IntoView {
     view! {
         <h1 class="font-serif text-3xl font-semibold text-heading">{page.title}</h1>
         {page.intro.iter().map(|p| view! { <p class=P>{rich(p)}</p> }).collect_view()}
-        {page.search.as_ref().map(search_block)}
+        {page.tools.iter().map(tool_block).collect_view()}
         {page.app.as_ref().map(app_block)}
         {page.instagram.as_ref().map(instagram_block)}
         {page.sections.iter().map(section).collect_view()}
     }
 }
 
-/// Support's showcase of the search: the lotus and the name, the tagline,
-/// the button to the search, the screenshots.
-fn search_block(search: &'static SearchBlock) -> impl IntoView {
+/// Support's showcase of one tool (the search, learning Pāli, the map): the
+/// heading, the tagline, the button, the screenshots in a carousel named
+/// `tool-shots-{id}`. The search tool (`SEARCH_ID`) also carries the
+/// lotus and the name, whatever its href; a button to this site stays in
+/// the tab; another site's button opens a new tab and ends with ` ↗`, as
+/// the App Store's.
+fn tool_block(tool: &'static ToolBlock) -> impl IntoView {
+    let external = matches!(tool.href, Href::Url(_));
+    let button = view! {
+        <a
+            href=tool.href.as_str()
+            target=external.then_some("_blank")
+            rel=external.then_some("noopener")
+            class=BTN
+        >
+            {if external { format!("{} ↗", tool.cta) } else { tool.cta.to_owned() }}
+        </a>
+    };
     view! {
         <section>
-            <h2 class=H2>{search.h}</h2>
-            <div class="mt-3 flex items-center gap-3">
-                <img src="/lotus.png" alt="" width="48" height="48" />
-                <p class="font-serif text-lg font-semibold text-heading">"PaliCanon"</p>
-            </div>
-            <p class=P>{search.tagline}</p>
-            <a href="/" class=BTN>
-                {search.cta}
-            </a>
-            {shots("search-shots", search.h, &SEARCH_SHOTS, search.alts)}
+            <h2 class=H2>{tool.h}</h2>
+            {(tool.id == SEARCH_ID)
+                .then(|| {
+                    view! {
+                        <div class="mt-3 flex items-center gap-3">
+                            <img src="/lotus.png" alt="" width="48" height="48" />
+                            <p class="font-serif text-lg font-semibold text-heading">"PaliCanon"</p>
+                        </div>
+                    }
+                })}
+            <p class=P>{tool.tagline}</p>
+            {button}
+            {shots(format!("tool-shots-{}", tool.id), tool.h, tool.shots, tool.alts)}
         </section>
     }
 }
@@ -179,7 +190,7 @@ fn app_block(app: &'static AppBlock) -> impl IntoView {
             <a href=APP_STORE target="_blank" rel="noopener" class=BTN>
                 {format!("{} ↗", app.cta)}
             </a>
-            {shots("app-shots", app.h, &APP_SHOTS, app.alts)}
+            {shots("app-shots".to_owned(), app.h, &APP_SHOTS, app.alts)}
         </section>
     }
 }
@@ -199,7 +210,7 @@ const SHOTS_PHONE_LAYOUT: &str = "w-[calc((100%-0.75rem)/2)]";
 /// every image carries its size (554 × 1200) so the slides' edges do not
 /// move when it loads.
 fn shots(
-    id: &'static str,
+    id: String,
     label: &'static str,
     srcs: &'static [&'static str],
     alts: &'static [&'static str],
@@ -433,58 +444,114 @@ mod tests {
         assert!(app < first_section, "showcases before the sections: {html}");
     }
 
-    /// The Support page's two showcases are two carousels, the Search
-    /// block first, each slide holding one screenshot.
+    /// The `<h2>` titles of the Support showcases, in page order, with
+    /// the id of the carousel each one holds.
+    const SHOWCASES: [(&str, &str); 4] = [
+        (">The search</h2>", "tool-shots-search"),
+        (">Learn Pāli</h2>", "tool-shots-learn"),
+        (">The map</h2>", "tool-shots-map"),
+        (">The Tipiṭaka app</h2>", "app-shots"),
+    ];
+
+    /// The html of the Support block whose `<h2>` is `SHOWCASES[n]`, up to
+    /// the next showcase's heading (Instagram's after the app's).
+    fn showcase(html: &str, n: usize) -> &str {
+        let from = html.find(SHOWCASES[n].0).expect(html);
+        let to = SHOWCASES
+            .get(n + 1)
+            .map_or(">On Instagram</h2>", |next| next.0);
+        &html[from..html.find(to).expect(html)]
+    }
+
+    /// The Support page's showcases are four carousels, in order: the
+    /// search, learn, the map, the app, then Instagram.
     #[test]
-    fn support_has_two_carousels_search_before_the_app() {
+    fn support_has_four_carousels_search_learn_map_then_the_app() {
         let html = render(Language::En, PageKind::Support);
         assert_eq!(
             html.matches(r#"aria-roledescription="carousel""#).count(),
-            2,
+            4,
             "{html}"
         );
-        let search = html.find(r#"id="search-shots""#).expect(&html);
-        let app = html.find(r#"id="app-shots""#).expect(&html);
-        assert!(search < app, "search block first: {html}");
-        let search_h = html.find(">The search</h2>").expect(&html);
-        let app_h = html.find(">The Tipiṭaka app</h2>").expect(&html);
-        assert!(search_h < search && search < app_h && app_h < app, "{html}");
-        let search_part = &html[search..app_h];
-        let app_part = &html[app..html.find(">On Instagram</h2>").expect(&html)];
-        for name in ["home", "results", "words", "french", "dark"] {
-            let src = format!(r#"src="/support/search-{name}.jpg""#);
-            assert_eq!(html.matches(&src).count(), 1, "{name}: {html}");
-            assert!(search_part.contains(&src), "{name} in the search carousel");
+        let mut last = 0;
+        for (n, (h, id)) in SHOWCASES.iter().enumerate() {
+            let heading = html.find(h).expect(&html);
+            let carousel = html.find(&format!(r#"id="{id}""#)).expect(&html);
+            assert!(last < heading && heading < carousel, "{id}: {html}");
+            let part = showcase(&html, n);
+            assert!(part.contains(&format!(r#"id="{id}""#)), "{id}: {part}");
+            last = carousel;
         }
-        assert_eq!(
-            html.matches(r#"src="/support/search-"#).count(),
-            5,
-            "{html}"
-        );
-        assert_eq!(search_part.matches("<img").count(), 5, "{search_part}");
-        for name in ["main", "reader", "search", "concept-graph", "notes"] {
-            let src = format!(r#"src="/support/app-{name}.jpg""#);
-            assert!(app_part.contains(&src), "{name} in the app carousel");
-        }
-        assert_eq!(app_part.matches(r#"role="group""#).count(), 5, "{app_part}");
-        assert_eq!(
-            search_part.matches(r#"role="group""#).count(),
-            5,
-            "{search_part}"
-        );
+        let instagram = html.find(">On Instagram</h2>").expect(&html);
+        assert!(last < instagram, "Instagram after the app: {html}");
         assert!(
             !html.contains("overflow-x-auto pb-2"),
             "the strip is gone: {html}"
         );
     }
 
-    /// Both carousels show four slides from `sm`, not the library's two.
+    /// The slides: 5, 5, 4 and 5, one image and one group each.
+    #[test]
+    fn the_four_carousels_hold_five_five_four_and_five_slides() {
+        let html = render(Language::En, PageKind::Support);
+        for (n, (prefix, count)) in [("search-", 5), ("learn-", 5), ("map-", 4), ("app-", 5)]
+            .into_iter()
+            .enumerate()
+        {
+            let part = showcase(&html, n);
+            let src = format!(r#"src="/support/{prefix}"#);
+            // The search's lotus and the app's icon are images outside the
+            // carousel; the icon's name starts with the app's prefix.
+            let outside = usize::from(n == 0 || n == 3);
+            assert_eq!(
+                part.matches(&src).count(),
+                count + usize::from(n == 3),
+                "{prefix}: {part}"
+            );
+            assert_eq!(
+                part.matches("<img").count(),
+                count + outside,
+                "{prefix}: {part}"
+            );
+            assert_eq!(
+                part.matches(r#"role="group""#).count(),
+                count,
+                "{prefix}: {part}"
+            );
+        }
+        assert_eq!(
+            html.matches(r#"src="/support/search-"#).count(),
+            5,
+            "{html}"
+        );
+        assert_eq!(html.matches(r#"src="/support/learn-"#).count(), 5, "{html}");
+        assert_eq!(html.matches(r#"src="/support/map-"#).count(), 4, "{html}");
+    }
+
+    /// Every screenshot of every tool is in its own carousel, once.
+    #[test]
+    fn every_tool_shot_is_in_its_own_carousel() {
+        let html = render(Language::En, PageKind::Support);
+        let page = PageKind::Support.text(locale_of(Language::En));
+        assert_eq!(page.tools.len(), 3);
+        for (n, tool) in page.tools.iter().enumerate() {
+            let part = showcase(&html, n);
+            for shot in tool.shots {
+                let src = format!(r#"src="{shot}""#);
+                assert_eq!(html.matches(&src).count(), 1, "{shot}: {html}");
+                assert!(part.contains(&src), "{shot} in {}: {part}", tool.id);
+            }
+        }
+    }
+
+    /// All the carousels show four slides from `sm`, not the library's
+    /// two: 19 slides (5 + 5 + 4 + 5).
     #[test]
     fn support_slides_show_four_in_view_from_sm() {
         let html = render(Language::En, PageKind::Support);
         assert_eq!(
             html.matches("sm:w-[calc((100%-2.25rem)/4)]").count(),
-            10,
+            19,
             "{html}"
         );
         assert_eq!(
@@ -494,37 +561,57 @@ mod tests {
         );
     }
 
-    /// On a phone both carousels show two whole slides and no peek of the
-    /// next, not the library's 85%.
+    /// On a phone all the carousels show two whole slides and no peek of
+    /// the next, not the library's 85%: 19 slides.
     #[test]
     fn support_slides_show_two_whole_on_a_phone() {
         let html = render(Language::En, PageKind::Support);
         assert_eq!(
             html.matches("w-[calc((100%-0.75rem)/2)]").count()
                 - html.matches("sm:w-[calc((100%-0.75rem)/2)]").count(),
-            10,
+            19,
             "{html}"
         );
         assert_eq!(html.matches("w-[85%]").count(), 0, "{html}");
     }
 
-    /// The Search block: the lotus and the name, the tagline, a button
-    /// to the search in the same tab.
+    /// Learn's and the map's buttons leave for their own site in a new
+    /// tab, marked ` ↗` as the App Store and Instagram ones.
     #[test]
-    fn the_search_block_has_its_button_to_the_search_in_the_same_tab() {
+    fn the_learn_and_map_buttons_are_external_links() {
         let html = render(Language::En, PageKind::Support);
-        assert!(html.contains(">PaliCanon</p>"), "{html}");
-        let h2 = html.find(">The search</h2>").expect(&html);
-        let app_h = html.find(">The Tipiṭaka app</h2>").expect(&html);
-        let block = &html[h2..app_h];
-        assert!(block.contains(r#"src="/lotus.png""#), "{block}");
+        for (n, url, label) in [
+            (1, "https://learn.palicanon.app", "Start learning Pāli"),
+            (2, "https://map.palicanon.app", "Open the map"),
+        ] {
+            let block = showcase(&html, n);
+            let button = tag_of(block, &format!(">{label} ↗</a>"));
+            assert!(button.contains(&format!(r#"href="{url}""#)), "{button}");
+            assert!(button.contains(r#"target="_blank""#), "{button}");
+            assert!(button.contains(r#"rel="noopener""#), "{button}");
+            assert!(
+                button.contains("rounded-lg border border-gold/60"),
+                "{button}"
+            );
+            assert!(!block.contains(r#"src="/lotus.png""#), "{block}");
+        }
+    }
+
+    /// The search's own button stays on this site: the root path, in the
+    /// same tab, with no `rel` and no ` ↗` (that mark is for other sites),
+    /// in the same button class as the other tools'.
+    #[test]
+    fn the_search_button_is_a_plain_in_site_link() {
+        let html = render(Language::En, PageKind::Support);
+        let block = showcase(&html, 0);
+        assert!(!block.contains("↗"), "{block}");
         let button = tag_of(block, ">Search the Canon</a>");
         assert!(button.contains(r#"href="/""#), "{button}");
-        assert!(!button.contains("target"), "{button}");
-        assert!(!block.contains("Search the Canon ↗"), "{block}");
+        assert!(!button.contains("target="), "{button}");
+        assert!(!button.contains("rel="), "{button}");
         assert!(
-            block.contains("rounded-lg border border-gold/60"),
-            "{block}"
+            button.contains("rounded-lg border border-gold/60"),
+            "{button}"
         );
     }
 
@@ -580,21 +667,131 @@ mod tests {
     fn every_screenshot_has_its_alt_text_in_every_language() {
         for language in [Language::En, Language::Fr, Language::Vi] {
             let page = PageKind::Support.text(locale_of(language));
-            let search = page.search.as_ref().expect("a search block");
+            assert_eq!(page.tools.len(), 3, "{language:?}");
+            for tool in page.tools {
+                assert_eq!(tool.alts.len(), tool.shots.len(), "{language:?}");
+            }
             let app = page.app.as_ref().expect("an app block");
-            assert_eq!(search.alts.len(), SEARCH_SHOTS.len(), "{language:?}");
             assert_eq!(app.alts.len(), APP_SHOTS.len(), "{language:?}");
         }
     }
 
-    /// The lotus beside the name is decoration: the name says it.
+    /// The lotus beside the name is decoration: the name says it. It is
+    /// the search's alone, not learn's nor the map's.
     #[test]
-    fn the_search_blocks_lotus_has_an_empty_alt() {
+    fn the_search_blocks_lotus_has_an_empty_alt_and_is_the_only_one() {
         let html = render(Language::En, PageKind::Support);
-        let h2 = html.find(">The search</h2>").expect(&html);
-        let block = &html[h2..];
+        let block = showcase(&html, 0);
         let lotus = tag_of(block, r#"src="/lotus.png""#);
         assert!(lotus.contains(r#"alt="""#), "{lotus}");
+        assert_eq!(block.matches("PaliCanon</p>").count(), 1, "{block}");
+        for n in 1..SHOWCASES.len() {
+            assert!(!showcase(&html, n).contains("PaliCanon</p>"), "{n}");
+        }
+    }
+
+    /// A tool that is not the search but whose button stays on this site
+    /// (an in-site route): the lotus and the name belong to the search
+    /// tool, not to every `Href::Path`.
+    static READER: ToolBlock = ToolBlock {
+        id: "reader",
+        h: "The reader",
+        tagline: "Read a sutta.",
+        cta: "Open the reader",
+        href: Href::Path("/reader"),
+        shots: &[],
+        alts: &[],
+    };
+
+    /// The lotus row is the search's by id: an in-site tool of another id
+    /// renders none, and the search tool still does.
+    #[test]
+    fn the_lotus_row_is_gated_on_the_search_id_not_on_an_in_site_href() {
+        let html = Owner::new().with(|| tool_block(&READER).to_html());
+        assert!(html.contains(r#"href="/reader""#), "{html}");
+        assert!(!html.contains(r#"src="/lotus.png""#), "{html}");
+        assert!(!html.contains("PaliCanon</p>"), "{html}");
+        let page = PageKind::Support.text(locale_of(Language::En));
+        let search = &page.tools[0];
+        assert_eq!(search.id, SEARCH_ID);
+        let html = Owner::new().with(|| tool_block(search).to_html());
+        assert!(html.contains(r#"src="/lotus.png""#), "{html}");
+        assert!(html.contains("PaliCanon</p>"), "{html}");
+    }
+
+    /// Learn's and the map's headings, taglines and buttons come from the
+    /// page's language, in fr and vi as in en: the French and Vietnamese
+    /// texts (alts included) are rendered, not the English ones, and the
+    /// external buttons end with ` ↗` and open a new tab.
+    #[test]
+    fn the_tool_blocks_speak_the_three_languages() {
+        let english = PageKind::Support.text(locale_of(Language::En));
+        for language in [Language::Fr, Language::Vi] {
+            let html = render(language, PageKind::Support);
+            let page = PageKind::Support.text(locale_of(language));
+            let ids: Vec<&str> = page.tools.iter().map(|tool| tool.id).collect();
+            assert_eq!(ids, ["search", "learn", "map"], "{language:?}");
+            for tool in &page.tools[1..] {
+                let en = english
+                    .tools
+                    .iter()
+                    .find(|t| t.id == tool.id)
+                    .expect("the English tool with this id");
+                assert_ne!(
+                    tool.h, en.h,
+                    "{language:?} {}: not the English text",
+                    tool.id
+                );
+                assert_ne!(tool.cta, en.cta, "{language:?} {}", tool.id);
+                assert_ne!(
+                    tool.alts, en.alts,
+                    "{language:?} {}: alts untranslated",
+                    tool.id
+                );
+                assert!(
+                    html.contains(&format!(">{}</h2>", tool.h)),
+                    "{language:?} {}: {html}",
+                    tool.id
+                );
+                assert!(
+                    html.contains(tool.tagline),
+                    "{language:?} {}: {html}",
+                    tool.id
+                );
+                assert!(!html.contains(en.tagline), "{language:?} {}", tool.id);
+                assert_external_button(&html, tool, language);
+            }
+        }
+    }
+
+    /// The tool's button is in `html`, labelled with ` ↗`, and opens a new
+    /// tab with `rel="noopener"`.
+    fn assert_external_button(html: &str, tool: &ToolBlock, language: Language) {
+        let label = format!(">{} ↗</a>", tool.cta);
+        assert!(html.contains(&label), "{language:?} {}: {html}", tool.id);
+        let button = tag_of(html, &label);
+        for attr in [r#"target="_blank""#, r#"rel="noopener""#] {
+            assert!(button.contains(attr), "{language:?} {}: {button}", tool.id);
+        }
+    }
+
+    /// Only Support renders the showcases: the Terms carry no tool
+    /// carousel, no app carousel and no lotus-and-name row.
+    #[test]
+    fn a_page_other_than_support_renders_no_showcase() {
+        for language in [Language::En, Language::Fr, Language::Vi] {
+            for kind in [
+                PageKind::Terms,
+                PageKind::Acknowledgements,
+                PageKind::Privacy,
+            ] {
+                let html = render(language, kind);
+                assert!(!html.contains("tool-shots-"), "{kind:?} {language:?}");
+                assert!(!html.contains("app-shots"), "{kind:?} {language:?}");
+                assert!(!html.contains(">PaliCanon</p>"), "{kind:?} {language:?}");
+                assert!(!html.contains(r#"aria-roledescription="carousel""#));
+            }
+        }
     }
 
     /// Rich text: bold, an outside link (new tab), a link on this site
