@@ -33,7 +33,7 @@ is blank, stops the service at boot with an error naming the variable
 (never its value). **No `.env` file, ever**: the token lives in the
 keychain, and in the process's environment for as long as it runs.
 
-It depends on `palicanon-ui-lib` by git (`branch = "main"`), with a local
+It depends on `palicanon-ui-lib` by git (`tag = "v0.3.0"`), with a local
 `[patch]` to `../ui-lib` (a worktree reaches it through the `wt/ui-lib`
 symlink, same setup as `ui-lab`'s gallery) — a change spanning both
 repositories is seen at once; a plain `cargo build` here (no patched
