@@ -11,7 +11,7 @@ Design v1 (mirrors learn-pali 048): a csr feature; a public Search fragment (Sea
 ## Workflow
 ```mermaid
 flowchart LR
-  Define["Define ✓ validated"]:::done --> Plan["Plan ✓ one lane"]:::done --> Build["Build ✓ 11 commits"]:::done --> Verify["Verify ✓ local list"]:::done --> Review["Review ✓ round 1; round 2 waived by the user"]:::done --> Check["Check ✓ orchestrator"]:::done --> Merge["Merge ✓ ce827b6"]:::done --> Retro:::todo
+  Define["Define ✓ validated"]:::done --> Plan["Plan ✓ one lane"]:::done --> Build["Build ✓ 11 commits"]:::done --> Verify["Verify ✓ local list"]:::done --> Review["Review ✓ round 1; round 2 waived by the user"]:::done --> Check["Check ✓ orchestrator"]:::done --> Merge["Merge ✓ ce827b6"]:::done --> Retro["Retro ✓ validated"]:::done
   classDef doing fill:#f9a825,color:#000
   classDef done fill:#2e7d32,color:#fff
   classDef todo fill:#9e9e9e,color:#fff
@@ -75,3 +75,12 @@ Ruled out: `--all-targets` for csr clippy (a superset, ruled at the build); `Bas
 
 ## Merge
 ce827b6 (fragment-v0.1.0)
+
+## Retro
+Retro agent: retro-discussion dde459840d4ce49, summary 10695; voice gemini 10714 (flash-lite, after a 429). Validated by the orchestrator, 2026-10-16:
+- Four @orchestrator questions ruled in the task file only, unanswered in the thread until the pre-merge hook blocked → process.md: a question is answered in its thread the turn it is ruled (docs 4734c85).
+- The build script's sibling-path include passed every local check and would break any consumer by tag → prompts/steps/verify.md: a crate consumed by tag is built once from a checkout with no sibling (docs 4734c85).
+- Review round 1 found no way out of a terminal state and a submit dropping ?passage= → ask-yourself/front/exits-and-kept-fields.md (docs 4734c85).
+- Review round 2 waived by the user («Fusionner sans dernier tour»): the round's remaining findings become a follow-up when it runs on main.
+- Kept as is: csr red on two intermediate commits (squash merge); MSRV and coverage ran at Fix 1; the oversized-diff and voice-window issues are already in prompts/review.md.
+
