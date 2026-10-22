@@ -1,6 +1,6 @@
 # 027 hashed asset names
 
-status: building · rank: 2 · level: simple · type: fix · request: the user, 2026-10-22 («en prod le bouton settings ne marche pas ... Prio !») · light path
+status: merged · rank: 2 · level: simple · type: fix · request: the user, 2026-10-22 («en prod le bouton settings ne marche pas ... Prio !») · light path
 
 ## Summary
 
@@ -19,3 +19,7 @@ Difficulty 2, impact 4 (every visitor after a deploy); rank 2 on the light path 
 | Build | done | fmt 0; leptosfmt 0; clippy-ssr 0; clippy-hydrate 0; clippy-csr 0; test 0 (330 lib + integration); doc 0; cargo leptos build --release 0; check-wasm 0; commit 4124f87 |
 | Serve | done | image-like folder (binary + hash.txt + site): page links /pkg/search-front.<hash>.{css,js,wasm}, all 200; no bare name |
 | Check | done | orchestrator: the curl proof (hashed wasm/js/css 200, bare links 0) and the CI matrix exit 0; the cache headers (no-cache HTML, immutable hashed files) stay in task 019 |
+| Merge | done | e965005 on main, pushed (dev deploys, the image rebuilds); prod by tag v0.1.6 after the dev check |
+
+## Retro
+One line (light path): unhashed asset names plus any cache break hydration at every deploy; the user hit it first (an hour of dead buttons); task 019 had the design since 2026-10 and was never run: a known defect with a design is a task to schedule, not a note.
