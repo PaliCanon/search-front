@@ -77,10 +77,14 @@ ENV BUILD_BRANCH=$BUILD_BRANCH \
 # The build needs no credential only while the lock holds no git source.
 RUN ! grep -q '^source = "git+' Cargo.lock \
     || { echo "Cargo.lock holds a git source: the build would need a GitHub credential (task 007)"; exit 1; }
+# cargo-leptos writes hash.txt under the BIN PACKAGE's folder when the workspace
+# has a single member (as here): `app/target/release/hash.txt`, not
+# `target/release/`. If a member is added it moves to `target/release/`, and
+# this `cp` fails the build (it never ships an image without the file).
 RUN cargo leptos build --release --cargo-locked \
     && scripts/check-wasm-no-token.sh \
     && mkdir /out \
-    && cp target/release/search_front /out/ \
+    && cp target/release/search_front app/target/release/hash.txt /out/ \
     && cp -r target/site /out/site \
     && cp scripts/smoke.sh scripts/token-pattern /out/
 
@@ -89,9 +93,11 @@ FROM debian:bookworm-slim
 RUN useradd --system --uid 10001 --home /nonexistent --shell /usr/sbin/nologin app
 WORKDIR /app
 # smoke.sh reads token-pattern from its own folder: they travel together.
-COPY --from=builder --chown=app:app /out/search_front /out/smoke.sh /out/token-pattern ./
-# site/ is LEPTOS_SITE_ROOT. The bundle is not hash-named (the workspace sets
-# no `hash-files`): there is no hash.txt to ship.
+COPY --from=builder --chown=app:app /out/search_front /out/hash.txt /out/smoke.sh /out/token-pattern ./
+# site/ is LEPTOS_SITE_ROOT. The bundle is hash-named (`hash-files` in the
+# workspace): the server reads hash.txt NEXT TO ITS OWN EXECUTABLE to name
+# search-front.<hash>.js/.wasm/.css, so a deploy never pairs a cached old glue
+# with a new wasm (task 027).
 COPY --from=builder --chown=app:app /out/site ./site
 # `get_configuration(None)` reads these and nothing else: no Cargo.toml in
 # the image. Cloud Run sends its traffic to 8080. The runtime secrets
@@ -102,6 +108,7 @@ ENV LEPTOS_OUTPUT_NAME=search-front \
     LEPTOS_SITE_ROOT=site \
     LEPTOS_SITE_PKG_DIR=pkg \
     LEPTOS_SITE_ADDR=0.0.0.0:8080 \
+    LEPTOS_HASH_FILES=true \
     LEPTOS_ENV=PROD \
     RUST_LOG=info \
     PORT=8080

@@ -43,6 +43,10 @@ reload-port = 4101
 bin-features = ["ssr"]
 lib-features = ["hydrate"]
 lib-profile-release = "wasm-release"
+# Hashed file names (`search-front.<hash>.css`, `.js`, `.wasm`): the shell reads
+# the hash file `cargo-leptos` writes next to the server binary, so a deploy
+# changes the names and a cached old glue never meets a new wasm (task 027).
+hash-files = true
 
 # Built from ../ui-lib (a worktree reaches it through the wt/ui-lib
 # symlink), not from GitHub: a change to both repositories is seen at once.

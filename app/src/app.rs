@@ -5,7 +5,7 @@
 
 use leptos::prelude::*;
 use leptos_i18n::td_string;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_meta::{HashedStylesheet, MetaTags, Title, provide_meta_context};
 use leptos_router::components::{Route, Router, Routes};
 use leptos_router::hooks::use_location;
 use leptos_router::path;
@@ -42,7 +42,11 @@ pub(crate) const BADGE: EnvBadgeInfo = EnvBadgeInfo {
 /// The HTML document around the app, rendered on the server. `data-theme`
 /// and `lang` follow the request's cookies ([`theme_attribute`],
 /// [`language_attribute`]), so the first paint never flashes the wrong
-/// one. The app sits in ui-lib's [`HydrationRoot`] (`<div id="pc-app">`),
+/// one. The stylesheet and the scripts are linked by their hashed names
+/// (`hash-files` in `Cargo.toml`; the server reads the hash file
+/// `cargo-leptos` writes), so a new build is never served from the
+/// browser's cache and an old glue is never paired with a new wasm
+/// (task 027). The app sits in ui-lib's [`HydrationRoot`] (`<div id="pc-app">`),
 /// the one element of `<body>` the server renders, which the browser's
 /// entry (`palicanon_ui_lib::hydrate`, in `lib.rs`) hydrates from: what
 /// Cloudflare adds to `<body>` (a decoy link first, scripts after) stays
@@ -56,6 +60,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
                 <link rel="icon" href="/favicon.ico" />
                 <AutoReload options=options.clone() />
+                <HashedStylesheet id="leptos" options=options.clone() />
                 <HydrationScripts options />
                 <MetaTags />
             </head>
@@ -76,7 +81,6 @@ pub fn App() -> impl IntoView {
     provide_language();
     provide_meta_context();
     view! {
-        <Stylesheet id="leptos" href="/pkg/search-front.css" />
         <Title text="PaliCanon — Search" />
         <Router>
             <Layout />
@@ -319,6 +323,50 @@ mod tests {
                     at = close + 6;
                 }
             }
+        }
+    }
+
+    /// 027: with `hash-files` on, the shell links the stylesheet, the glue
+    /// and the wasm by their hashed names (read from the hash file
+    /// `cargo-leptos` writes), never by the bare ones: a deploy changes the
+    /// names, so a browser's cached glue is never paired with a new wasm.
+    /// The hash file here is a temporary one, named by an absolute path.
+    #[tokio::test]
+    async fn the_document_links_the_hashed_bundle_never_the_bare_names() {
+        let _ = any_spawner::Executor::init_tokio();
+        let hash_file = std::env::temp_dir().join("search-front-test-hash.txt");
+        std::fs::write(&hash_file, "js: aaa111\nwasm: bbb222\ncss: ccc333\n").expect("hash file");
+        let options = LeptosOptions::builder()
+            .output_name("search-front")
+            .hash_files(true)
+            .hash_file(hash_file.to_string_lossy().as_ref().into())
+            .build();
+        let (server, output) = leptos_meta::ServerMetaContext::new();
+        let body = Owner::new().with(|| {
+            provide_context(RequestUrl::new("/"));
+            provide_context(server);
+            shell(options).to_html()
+        });
+        let html = futures::StreamExt::collect::<String>(
+            output
+                .inject_meta_context(futures::stream::iter([body]))
+                .await,
+        )
+        .await;
+        for hashed in [
+            "/pkg/search-front.aaa111.js",
+            "/pkg/search-front.bbb222.wasm",
+            "/pkg/search-front.ccc333.css",
+        ] {
+            assert_eq!(html.matches(hashed).count(), 1, "{hashed}: {html}");
+        }
+        for bare in [
+            "/pkg/search-front.js",
+            "/pkg/search-front.css",
+            "/pkg/search-front_bg.wasm",
+            "/pkg/search-front.wasm",
+        ] {
+            assert!(!html.contains(bare), "{bare} is linked: {html}");
         }
     }
 
