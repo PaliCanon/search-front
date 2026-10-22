@@ -131,6 +131,11 @@ jobs:
       - run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test csr --test csr_mount
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+      # tests/release_document.rs (task 028): the release read from the head
+      # metas in a real browser, the way hydrate() reads it.
+      - run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
       # Each csr test bundle's wasm-bindgen output: no token, no API client,
       # no mock, and none of the site's endpoint (BUNDLE_MODE=csr).
       - name: The csr bundles hold no token path
@@ -240,7 +245,10 @@ jobs:
       - run: scripts/check-wasm-no-token.sh
 
   scripts:
-    # The shell, Python and Node tests that guard the deploy.
+    # The shell, Python and Node tests that guard the deploy: the release
+    # values and the steps that write them (release-values.test.sh), the
+    # tofu lifecycle that must not strip them (lifecycle.test.sh), the
+    # workflow rules, the Worker.
     name: scripts, workflows, Worker
     runs-on: ubuntu-latest
     steps:
@@ -257,7 +265,9 @@ jobs:
       - run: python3 scripts/check_workflows.py
       - run: bash scripts/manifest-ref.test.sh
       - run: bash scripts/serving-revision.test.sh
+      - run: bash scripts/release-values.test.sh
       - run: bash infra/scripts/origin-secret.test.sh
+      - run: bash infra/scripts/lifecycle.test.sh
       - uses: actions/setup-node@v4
         with:
           node-version: 22

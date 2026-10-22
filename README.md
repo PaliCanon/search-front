@@ -85,6 +85,8 @@ checks both test bundles, the app checks its own bundle the same way):
 CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner CHROMEDRIVER=<chromedriver> \
   cargo test -p search_front --no-default-features --features csr \
   --target wasm32-unknown-unknown --test csr --test csr_mount
+# the release document tests (same runner and chromedriver):
+cargo test -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document
 # the test binary's wasm-bindgen output holds the fragment and nothing of the server:
 wasm-bindgen --target web --out-dir pkg-csr <target/wasm32-unknown-unknown/debug/deps/csr-*.wasm>
 BUNDLE_MODE=csr PKG_DIR=pkg-csr scripts/check-wasm-no-token.sh
@@ -104,6 +106,8 @@ bundle check above, the deploy's own tests and `tofu fmt`/`validate`:
 bash scripts/manifest-ref.test.sh      # the ref a manifest names for a git dependency
 python3 scripts/check_workflows_test.py && python3 scripts/check_workflows.py
 bash infra/scripts/origin-secret.test.sh
+bash infra/scripts/lifecycle.test.sh
+bash scripts/release-values.test.sh
 node --test 'infra/worker/*.test.mjs'  # the Worker
 (cd infra && tofu fmt -check -recursive && tofu init -backend=false && tofu validate)
 ```
@@ -126,6 +130,8 @@ Worker and the ordered first-time commands are in `infra/README.md`.
 The public-host check (`scripts/rollout-check.sh --via-worker`) also loads
 `/`, a search and `/privacy` in headless Chrome (`$CHROME`) and fails on a
 hydration panic or a page without `<html data-hydrated>` (ui-lib 063).
+
+The footer badge is the deploy's, not the image's: it says which ref was rolled out, so the image is identical across refs (`app/tests/no_build_git.rs`: the build reads no git). `deploy.yml` writes `SEARCH_FRONT_ENV` and `SEARCH_FRONT_SHA` onto the Cloud Run revision with `gcloud run deploy --update-env-vars`, the values from `scripts/release-values.sh`. A prod tag `v0.1.8` shows `v0.1.8` alone, `main` shows `main · <sha7>`, a local run `dev`, and a page whose metas are missing shows `unknown` in the browser. Every push to `main` makes a new revision, even with the same image. The rollout gate (`scripts/rollout-check.sh URL`, which needs `ROLLOUT_EXPECT_ENV` and `ROLLOUT_EXPECT_SHA`, the second may be empty for a tag) fails with exit 8 when the served metas differ from the intended release. The deploy uses `--update-env-vars` and never `--set-env-vars`, which would wipe the rest of the env. Tofu ignores the container env, so its apply comes before the first deploy that writes it (`infra/README.md`).
 
 ## What it never holds
 

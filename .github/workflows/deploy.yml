@@ -1,12 +1,18 @@
 name: deploy
 
 # Push to main → dev (search-front-dev); tag v* → prod (search-front-prod).
-# The image is content-addressed: built only when its inputs changed, rolled
-# out with no traffic first, checked through the revision's tagged URL with
-# the origin header, then given the traffic, then checked again through the
-# public host and (it must refuse) the bare Cloud Run URL. The model is
-# learn-pali's deploy.yml; what differs is the three checkouts, the origin
-# secret and no credential in the image build.
+# The image is content-addressed: built only when its inputs changed (the ref
+# is not an input: the footer badge's release is NOT in the image), rolled out
+# with no traffic first as a revision that carries its release (the two env
+# values SEARCH_FRONT_ENV and SEARCH_FRONT_SHA, from scripts/release-values.sh,
+# written with the flag that updates single variables), checked through the
+# revision's tagged URL with the origin header (the page's search-release
+# metas must say that release: exit 8 otherwise), then given the traffic, then
+# checked again through the public host and (it must refuse) the bare Cloud
+# Run URL. A run is skipped only when the serving revision already has the
+# image AND the release. The model is learn-pali's deploy.yml (task 060);
+# what differs is the three checkouts, the origin secret, the single step
+# that rolls out and moves the traffic, and no manual dispatch.
 #
 # Repository variables (not secrets, no value here):
 #   WIF_PROVIDER, DEPLOYER_SA, GCP_PROJECT — the workload identity of the
@@ -99,16 +105,14 @@ jobs:
           context: .
           file: search-front/Dockerfile
           # No `secrets:`, no `ssh:`: the build takes no credential (the
-          # siblings are COPYed and the lock holds no git source).
+          # siblings are COPYed and the lock holds no git source). No build
+          # args either: the release (the footer badge's tag or branch, and
+          # commit) is not in the image, so its hash does not change with the
+          # ref. The rollout step writes it onto the revision.
           push: true
           tags: |
             ${{ steps.vars.outputs.image_hash }}
             ${{ steps.vars.outputs.image }}:${{ github.sha }}
-          # The footer badge shows these, read at compile time (the image
-          # has no .git): the branch or tag, the commit that was pushed.
-          build-args: |
-            BUILD_BRANCH=${{ github.ref_name }}
-            BUILD_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -118,6 +122,13 @@ jobs:
       # the new image while the old revision still serves, and comparing the
       # template would report that as done. The serving revision is also
       # recorded (`serving`), for the rollback of a failed public check.
+      # "Already running" means that revision has this image AND this release
+      # (its SEARCH_FRONT_ENV and SEARCH_FRONT_SHA, absent == empty): the
+      # image no longer changes with the ref, so every push to main, and a tag
+      # on main's image, still makes a revision (same image, new env). A
+      # revision whose JSON does not parse, that names no image, or whose env
+      # is not a list falls open to a deploy and the log says why (never a
+      # skip, never a dead job).
       - name: Is that image already running?
         id: current
         env:
@@ -132,16 +143,54 @@ jobs:
           SERVING=$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format json \
             | scripts/serving-revision.sh) \
             || { echo "::error::no revision serves $SERVICE: the rollback would have nowhere to go"; exit 1; }
-          CURRENT=$(gcloud run revisions describe "$SERVING" --project "$PROJECT" --region "$REGION" \
-            --format='value(spec.containers[0].image)')
+          # The release this run intends (a refused ref fails the step here).
+          INTENDED=$(scripts/release-values.sh)
+          REVISION_JSON=$(gcloud run revisions describe "$SERVING" --project "$PROJECT" --region "$REGION" --format json)
+          CURRENT=$(printf '%s' "$REVISION_JSON" | jq -r '.spec.containers[0].image // empty' 2>/dev/null) || CURRENT=""
           echo "serving=$SERVING" >> "$GITHUB_OUTPUT"
-          if [ "$CURRENT" = "$IMAGE_HASH" ]; then
-            echo "running=true" >> "$GITHUB_OUTPUT"
-            echo "search-front: $SERVICE already serves $IMAGE_HASH (revision $SERVING), nothing to deploy"
-          else
+          # An unreadable revision JSON (empty, not JSON, no image) fails OPEN
+          # to a deploy (an extra revision is the worst case) and says why; it
+          # never kills the step. The `gcloud run revisions describe` call
+          # above still fails the step: a transient failure is re-run.
+          if [ -z "$CURRENT" ]; then
+            if printf '%s' "$REVISION_JSON" | jq -e . >/dev/null 2>&1; then
+              REASON="the revision JSON names no image"
+            else
+              REASON="the revision JSON is empty or does not parse"
+            fi
             echo "running=false" >> "$GITHUB_OUTPUT"
+            echo "search-front: could not read the serving revision's image/release ($REASON): deploying a new revision"
+          elif [ "$CURRENT" != "$IMAGE_HASH" ]; then
+            echo "running=false" >> "$GITHUB_OUTPUT"
+          else
+            # `same`: 0 = this image and this release, 1 = another release,
+            # 2 = a revision whose env it cannot read (a wrong type): that one
+            # deploys too and says so, never "another release".
+            RELEASE_RC=0
+            scripts/release-values.sh same <<<"$REVISION_JSON" || RELEASE_RC=$?
+            case "$RELEASE_RC" in
+              0)
+                echo "running=true" >> "$GITHUB_OUTPUT"
+                echo "search-front: $SERVICE already serves $IMAGE_HASH as $INTENDED (revision $SERVING), nothing to deploy"
+                ;;
+              2)
+                echo "running=false" >> "$GITHUB_OUTPUT"
+                echo "search-front: could not read the serving revision's release (its env is not a list): deploying a new revision"
+                ;;
+              *)
+                echo "running=false" >> "$GITHUB_OUTPUT"
+                echo "search-front: $SERVICE serves the image but another release ($INTENDED intended): a new revision with the new env"
+                ;;
+            esac
           fi
 
+      # The revision carries its release: the two env values written here
+      # and nowhere else, with the flag that updates the variables one by one
+      # (the flag that replaces them all would wipe RUST_LOG, SEARCH_API_URL
+      # and the secret references, and every request would then be refused).
+      # The gate then reads the page of the tagged revision: its search-release
+      # metas must say the release just written (exit 8 otherwise, and the
+      # traffic stays where it is).
       - name: Roll out without traffic, check, then serve
         if: steps.current.outputs.running != 'true'
         env:
@@ -151,6 +200,7 @@ jobs:
           SERVICE="search-front-$ENV"
           TAG="sha-${GITHUB_SHA::7}"
           gcloud run deploy "$SERVICE" --project "$PROJECT" --region "$REGION" --image "$IMAGE_HASH" \
+            --update-env-vars "$(scripts/release-values.sh)" \
             --no-traffic --tag "$TAG" --quiet
           URL=$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" --format json \
             | jq -r --arg t "$TAG" '[.status.traffic[] | select(.tag == $t) | .url] | .[0] // empty')
@@ -168,8 +218,20 @@ jobs:
           unset VALUE
 
           # The page, the wasm, a real search, no token on the wire, the
-          # guard on: on the tagged revision, before it has any traffic.
-          scripts/rollout-check.sh "$URL" "$HEADER_FILE"
+          # guard on, and the release the page says: on the tagged revision,
+          # before it has any traffic.
+          ROLLOUT_EXPECT_ENV="$(scripts/release-values.sh env)"
+          ROLLOUT_EXPECT_SHA="$(scripts/release-values.sh sha)"
+          export ROLLOUT_EXPECT_ENV ROLLOUT_EXPECT_SHA
+          RC=0
+          scripts/rollout-check.sh "$URL" "$HEADER_FILE" || RC=$?
+          if [ "$RC" = 8 ]; then
+            echo "::error::the revision at its tagged URL serves another release than the one deployed (its search-release metas are not env '$ROLLOUT_EXPECT_ENV', sha '$ROLLOUT_EXPECT_SHA'); the traffic is untouched"
+            exit 1
+          elif [ "$RC" != 0 ]; then
+            echo "::error::the revision at its tagged URL failed rollout-check.sh; the traffic is untouched"
+            exit 1
+          fi
 
           gcloud run services update-traffic "$SERVICE" --project "$PROJECT" --region "$REGION" --to-latest --quiet
           echo "search-front: $SERVICE now serves $IMAGE_HASH"

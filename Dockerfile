@@ -66,14 +66,6 @@ COPY search-front/Cargo.toml search-front/Cargo.lock ./search-front/
 COPY search-front/app ./search-front/app
 COPY search-front/scripts ./search-front/scripts
 WORKDIR /src/search-front
-# The footer badge shows the branch and the short commit this image was built
-# from, read at COMPILE time by `app/build.rs` (the image has no .git, so git
-# says "unknown"). CI passes both with `--build-arg`. Declared here, after the
-# COPYs, so a new commit does not invalidate the layers above.
-ARG BUILD_BRANCH
-ARG BUILD_SHA
-ENV BUILD_BRANCH=$BUILD_BRANCH \
-    BUILD_SHA=$BUILD_SHA
 # The build needs no credential only while the lock holds no git source.
 RUN ! grep -q '^source = "git+' Cargo.lock \
     || { echo "Cargo.lock holds a git source: the build would need a GitHub credential (task 007)"; exit 1; }

@@ -31,6 +31,10 @@ async fn main() {
     };
     println!("{}", config.log_line());
     println!("{}", origin.log_line());
+    println!(
+        "{}",
+        search_front::release::ReleaseInfo::server().log_line()
+    );
     let source = Arc::new(config.into_source());
 
     let conf = get_configuration(None).expect("leptos configuration");

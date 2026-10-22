@@ -158,13 +158,28 @@ fn answer(mut stream: TcpStream, handler: &impl Fn(&Req) -> Resp, seen: &Mutex<V
 
 const WASM: &str = "/pkg/search-front.4f2a9c.wasm";
 
-/// The page the real service renders, as far as the scripts read it.
-fn page(extra: &str) -> String {
+/// The release the fake deployment serves (task 028): a branch build, as
+/// `scripts/release-values.sh` prints it for `main`.
+const EXPECT_ENV: &str = "main";
+const EXPECT_SHA: &str = "34c489c";
+
+/// The two metas the real service renders in the head (task 028).
+const RELEASE_METAS: &str = "<meta name=\"search-release-env\" content=\"main\">\
+                             <meta name=\"search-release-sha\" content=\"34c489c\">";
+
+/// The page the real service renders, as far as the scripts read it, with
+/// `head` after the title (the release metas live there).
+fn page_with_head(head: &str, extra: &str) -> String {
     format!(
-        "<!DOCTYPE html><html><head><title>PaliCanon — Search</title>\
+        "<!DOCTYPE html><html><head><title>PaliCanon — Search</title>{head}\
          <link rel=\"preload\" href=\"{WASM}\" as=\"fetch\" type=\"application/wasm\">\
          </head><body>{extra}</body></html>"
     )
+}
+
+/// The page with the right release metas.
+fn page(extra: &str) -> String {
+    page_with_head(RELEASE_METAS, extra)
 }
 
 const RESULTS: &str = "<ol class=\"divide-y\"><li>MN 10</li></ol>";
@@ -272,11 +287,22 @@ fn run(script: &Path, args: &[&str], env: &[(&str, &str)]) -> Output {
         .arg(script)
         .args(args)
         .env_remove("ORIGIN_SECRET")
+        .env_remove("ROLLOUT_EXPECT_ENV")
+        .env_remove("ROLLOUT_EXPECT_SHA")
         .env("SMOKE_WAIT", "8");
     for (name, value) in env {
         command.env(name, value);
     }
     command.output().expect("bash runs the script")
+}
+
+/// `env` plus the intended release (`main`, `34c489c`): what the deploy
+/// step hands `rollout-check.sh` in direct mode (task 028).
+fn with_release<'a>(env: &[(&'a str, &'a str)]) -> Vec<(&'a str, &'a str)> {
+    let mut all = env.to_vec();
+    all.push(("ROLLOUT_EXPECT_ENV", EXPECT_ENV));
+    all.push(("ROLLOUT_EXPECT_SHA", EXPECT_SHA));
+    all
 }
 
 /// Everything the script printed.
@@ -546,20 +572,26 @@ fn rollout_check_passes_on_the_real_binary_in_each_mode() {
     let checked = start_service(&site, Some(SECRET));
     let url = format!("http://127.0.0.1:{}", checked.port);
 
-    let out = run(&check_script(), &[&url], &[("ORIGIN_SECRET", SECRET)]);
+    // The service with no `SEARCH_FRONT_ENV` is a `dev` build with no sha
+    // (task 028). This is the one test that stays red on the lane's branch
+    // until the Rust side (lane A) renders the metas.
+    let release = [("ROLLOUT_EXPECT_ENV", "dev"), ("ROLLOUT_EXPECT_SHA", "")];
+    let mut env = vec![("ORIGIN_SECRET", SECRET)];
+    env.extend(release);
+    let out = run(&check_script(), &[&url], &env);
     let text = printed(&out);
     assert_eq!(
         out.status.code(),
         Some(0),
         "secret from the environment: {text}"
     );
-    for check in ["root", "wasm", "search", "token", "guard"] {
+    for check in ["root", "release", "wasm", "search", "token", "guard"] {
         assert!(text.contains(check), "{check} is reported: {text}");
     }
 
     let file = header_file("real");
     let file_arg = file.to_str().expect("utf-8");
-    let out = run(&check_script(), &[&url, file_arg], &[]);
+    let out = run(&check_script(), &[&url, file_arg], &release);
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -714,7 +746,7 @@ fn rollout_check_names_the_check_that_failed() {
         let out = run(
             &check_script(),
             &[&fake.url()],
-            &[("ORIGIN_SECRET", SECRET)],
+            &with_release(&[("ORIGIN_SECRET", SECRET)]),
         );
         assert_fails_naming(&out, check, case);
     }
@@ -723,7 +755,7 @@ fn rollout_check_names_the_check_that_failed() {
 #[test]
 fn rollout_check_demands_a_secret_and_refuses_to_send_it_to_the_worker() {
     let fake = Fake::start(healthy);
-    let out = run(&check_script(), &[&fake.url()], &[]);
+    let out = run(&check_script(), &[&fake.url()], &with_release(&[]));
     assert_eq!(out.status.code(), Some(2), "no secret: {}", printed(&out));
     let file = header_file("worker");
     let file_arg = file.to_str().expect("utf-8");
@@ -745,7 +777,7 @@ fn rollout_check_demands_a_secret_and_refuses_to_send_it_to_the_worker() {
     let out = run(
         &check_script(),
         &[&fake.url(), bad.to_str().expect("utf-8")],
-        &[],
+        &with_release(&[]),
     );
     assert_eq!(
         out.status.code(),
@@ -765,7 +797,7 @@ fn rollout_check_retries_while_the_engine_is_starting() {
     let out = run(
         &check_script(),
         &[&fake.url()],
-        &[("ORIGIN_SECRET", SECRET)],
+        &with_release(&[("ORIGIN_SECRET", SECRET)]),
     );
     let text = printed(&out);
     assert_eq!(out.status.code(), Some(0), "passes after retries: {text}");
@@ -788,11 +820,11 @@ fn rollout_check_fails_after_retries_if_engine_never_starts() {
     let out = run(
         &check_script(),
         &[&fake.url()],
-        &[
+        &with_release(&[
             ("ORIGIN_SECRET", SECRET),
             ("ROLLOUT_SEARCH_TRIES", "3"),
             ("ROLLOUT_SEARCH_WAIT", "0"),
-        ],
+        ]),
     );
     let text = printed(&out);
     assert_eq!(out.status.code(), Some(1), "fails: {text}");
@@ -809,7 +841,7 @@ fn rollout_check_fails_immediately_on_bad_page_without_starting_marker() {
     let out = run(
         &check_script(),
         &[&fake.url()],
-        &[("ORIGIN_SECRET", SECRET)],
+        &with_release(&[("ORIGIN_SECRET", SECRET)]),
     );
     let text = printed(&out);
     assert_eq!(out.status.code(), Some(1), "fails: {text}");
@@ -860,7 +892,7 @@ fn rollout_check_refuses_a_missing_or_empty_token_pattern() {
             (
                 "direct",
                 vec![url.as_str()],
-                vec![("ORIGIN_SECRET", SECRET)],
+                with_release(&[("ORIGIN_SECRET", SECRET)]),
             ),
             ("worker", vec!["--via-worker", url.as_str()], vec![]),
             ("refused", vec!["--refused", url.as_str()], vec![]),
@@ -982,9 +1014,256 @@ fn rollout_check_direct_mode_has_no_worker_500() {
     let out = run(
         &check_script(),
         &[&worker_like.url()],
-        &[("ORIGIN_SECRET", SECRET)],
+        &with_release(&[("ORIGIN_SECRET", SECRET)]),
     );
     assert_fails_naming(&out, "root", "direct mode");
+}
+
+// ------------------------------------------------- rollout-check.sh: release
+
+/// A server that serves `head` in the page's head, to a caller with the
+/// secret, on `/`; healthy for the rest.
+fn serving_head(head: &'static str) -> Handler {
+    Box::new(move |r| {
+        if r.authed() && r.path == "/" {
+            Resp::new(200, &page_with_head(head, "")).with("content-type", "text/html")
+        } else {
+            healthy(r)
+        }
+    })
+}
+
+/// Runs the direct mode on a server serving `head`, wanting `env` and `sha`.
+fn release_run(head: &'static str, env: &str, sha: &str) -> Output {
+    let fake = Fake::start(serving_head(head));
+    run(
+        &check_script(),
+        &[&fake.url()],
+        &[
+            ("ORIGIN_SECRET", SECRET),
+            ("ROLLOUT_EXPECT_ENV", env),
+            ("ROLLOUT_EXPECT_SHA", sha),
+        ],
+    )
+}
+
+/// A release case: what is wrong or right, the head the page serves, the
+/// intended env and the intended sha.
+type ReleaseCase = (&'static str, &'static str, &'static str, &'static str);
+
+/// Every way the served metas can differ from the intended release.
+fn release_mismatch_cases() -> [ReleaseCase; 8] {
+    [
+        (
+            "the env meta says feat/x while main is wanted",
+            r#"<meta name="search-release-env" content="feat/x"><meta name="search-release-sha" content="34c489c">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "the sha meta differs",
+            r#"<meta name="search-release-env" content="main"><meta name="search-release-sha" content="0000000">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "the env meta is missing",
+            r#"<meta name="search-release-sha" content="34c489c">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "the sha meta is missing",
+            r#"<meta name="search-release-env" content="main">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "the env meta has no content",
+            r#"<meta name="search-release-env"><meta name="search-release-sha" content="34c489c">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "content before name, a differing sha",
+            r#"<meta content="main" name="search-release-env"><meta content="0000000" name="search-release-sha">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "a tag is wanted (no sha) and the page serves a sha",
+            r#"<meta name="search-release-env" content="v0.1.8"><meta name="search-release-sha" content="34c489c">"#,
+            "v0.1.8",
+            "",
+        ),
+        (
+            "a branch is wanted and the page serves an empty sha",
+            r#"<meta name="search-release-env" content="main"><meta name="search-release-sha" content="">"#,
+            "main",
+            "34c489c",
+        ),
+    ]
+}
+
+/// Design (060, twin 028): the gate asserts the revision serves the
+/// intended release, exit 8 apart from every other failure. One server per
+/// way the metas can be wrong; each failure names the `release` check.
+#[test]
+fn rollout_check_exits_8_when_a_release_meta_differs() {
+    for (case, head, env, sha) in release_mismatch_cases() {
+        let out = release_run(head, env, sha);
+        let text = printed(&out);
+        assert_eq!(out.status.code(), Some(8), "{case}: {text}");
+        assert!(
+            text.contains("FAIL release"),
+            "{case}: names release: {text}"
+        );
+        assert!(!text.contains(SECRET), "{case}: secret printed: {text}");
+    }
+}
+
+/// The right metas pass, on a branch and on a tag (empty sha, which has no
+/// sha), whatever the attribute order and even over several lines.
+#[test]
+fn rollout_check_release_ok_on_a_page_with_the_right_metas() {
+    let cases: [ReleaseCase; 4] = [
+        ("a branch", RELEASE_METAS, "main", "34c489c"),
+        (
+            "a tag",
+            r#"<meta name="search-release-env" content="v0.1.8"><meta name="search-release-sha" content="">"#,
+            "v0.1.8",
+            "",
+        ),
+        (
+            "content before name",
+            r#"<meta content="main" name="search-release-env"><meta content="34c489c" name="search-release-sha">"#,
+            "main",
+            "34c489c",
+        ),
+        (
+            "tags over several lines",
+            "<meta\n  name=\"search-release-env\"\n  content=\"main\"\n><meta\r\n name='search-release-sha'\r\n content='34c489c'>",
+            "main",
+            "34c489c",
+        ),
+    ];
+    for (case, head, env, sha) in cases {
+        let out = release_run(head, env, sha);
+        let text = printed(&out);
+        assert_eq!(out.status.code(), Some(0), "{case}: {text}");
+        assert!(text.contains("release ok"), "{case}: {text}");
+    }
+}
+
+/// A usage case: the variable named, the case, the release variables given.
+type UsageCase = (
+    &'static str,
+    &'static str,
+    Vec<(&'static str, &'static str)>,
+);
+
+/// Design: either variable missing is a usage error (exit 2) before any
+/// request, naming the variable; a sha that is SET but empty (a tag) is not.
+#[test]
+fn rollout_check_demands_the_intended_release() {
+    let cases: [UsageCase; 3] = [
+        (
+            "ROLLOUT_EXPECT_ENV",
+            "env unset",
+            vec![("ROLLOUT_EXPECT_SHA", EXPECT_SHA)],
+        ),
+        (
+            "ROLLOUT_EXPECT_ENV",
+            "env empty",
+            vec![
+                ("ROLLOUT_EXPECT_ENV", ""),
+                ("ROLLOUT_EXPECT_SHA", EXPECT_SHA),
+            ],
+        ),
+        (
+            "ROLLOUT_EXPECT_SHA",
+            "sha unset",
+            vec![("ROLLOUT_EXPECT_ENV", EXPECT_ENV)],
+        ),
+    ];
+    for (name, case, release) in cases {
+        let fake = Fake::start(healthy);
+        let mut env = vec![("ORIGIN_SECRET", SECRET)];
+        env.extend(release);
+        let out = run(&check_script(), &[&fake.url()], &env);
+        let text = printed(&out);
+        assert_eq!(out.status.code(), Some(2), "{case}: {text}");
+        assert!(text.contains(name), "{case}: names {name}: {text}");
+        assert_eq!(
+            fake.seen.lock().expect("lock").len(),
+            0,
+            "{case}: no request"
+        );
+    }
+    // A tag has no sha: set but empty is a valid intent.
+    let tag = r#"<meta name="search-release-env" content="v0.1.8"><meta name="search-release-sha" content="">"#;
+    let out = release_run(tag, "v0.1.8", "");
+    assert_eq!(out.status.code(), Some(0), "empty sha: {}", printed(&out));
+}
+
+/// A page that serves the origin secret as a release meta must not make the
+/// message print it, whichever way the secret was given.
+#[test]
+fn rollout_check_never_prints_the_origin_secret_in_the_release_message() {
+    let echo: &'static str = Box::leak(
+        format!(
+            r#"<meta name="search-release-env" content="{SECRET}"><meta name="search-release-sha" content="34c489c">"#
+        )
+        .into_boxed_str(),
+    );
+    let file = header_file("release-secret");
+    let file_arg = file.to_str().expect("utf-8");
+    let release = [
+        ("ROLLOUT_EXPECT_ENV", EXPECT_ENV),
+        ("ROLLOUT_EXPECT_SHA", EXPECT_SHA),
+    ];
+    let mut env_mode = vec![("ORIGIN_SECRET", SECRET)];
+    env_mode.extend(release);
+    for (case, args, env) in [
+        ("environment", vec![], env_mode),
+        ("header file", vec![file_arg], release.to_vec()),
+    ] {
+        let fake = Fake::start(serving_head(echo));
+        let url = fake.url();
+        let mut all: Vec<&str> = vec![&url];
+        all.extend(args);
+        let out = run(&check_script(), &all, &env);
+        let text = printed(&out);
+        assert_eq!(out.status.code(), Some(8), "{case}: {text}");
+        assert!(
+            text.contains("<the origin secret>"),
+            "{case}: masked: {text}"
+        );
+        assert!(!text.contains(SECRET), "{case}: secret printed: {text}");
+    }
+    let _ = std::fs::remove_file(file);
+}
+
+/// Design: `--via-worker` and `--refused` neither read nor need the intended
+/// release, and never run the release check.
+#[test]
+fn rollout_check_release_is_for_the_direct_mode_only() {
+    let fake = Fake::start(through_the_worker);
+    let chrome = FakeChrome::new("release-worker");
+    let out = run(
+        &check_script(),
+        &["--via-worker", &fake.url()],
+        &chrome.env("ok"),
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(0), "via the Worker: {text}");
+    assert!(!text.contains("release"), "via the Worker: {text}");
+
+    let wall = Fake::start(|_| Resp::new(403, ""));
+    let out = run(&check_script(), &["--refused", &wall.url()], &[]);
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(0), "refused: {text}");
+    assert!(!text.contains("release"), "refused: {text}");
 }
 
 // ------------------------------------------------- rollout-check.sh: hydrate
@@ -1218,11 +1497,11 @@ fn rollout_check_hydrate_runs_through_the_worker_only() {
     let out = run(
         &check_script(),
         &[&fake.url()],
-        &[
+        &with_release(&[
             ("ORIGIN_SECRET", SECRET),
             ("CHROME", chrome.bin.to_str().expect("utf-8")),
             ("FAKE_CHROME_MODE", "panic"),
-        ],
+        ]),
     );
     let text = printed(&out);
     assert_eq!(out.status.code(), Some(0), "{text}");
@@ -1279,7 +1558,7 @@ fn the_secret_is_sent_but_never_printed_nor_put_on_a_command_line() {
         let url = fake.url();
         let mut all: Vec<&str> = vec![&url];
         all.extend(args);
-        let out = run(&check_script(), &all, &env);
+        let out = run(&check_script(), &all, &with_release(&env));
         let text = printed(&out);
         assert_eq!(out.status.code(), Some(0), "{case}: {text}");
         assert!(

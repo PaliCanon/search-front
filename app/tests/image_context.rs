@@ -389,50 +389,26 @@ fn the_smoke_call_has_the_form_the_script_takes() {
     );
 }
 
-/// The badge reads the branch and the commit at compile time (`app/build.rs`);
-/// the image has no `.git`, so the builder stage takes them as build args and
-/// exports them to the environment of `cargo leptos build`.
+/// 028: the release is not in the image. The builder takes no build argument
+/// but the `cargo-leptos` version, and exports no branch or commit: the badge
+/// is the deploy's (`SEARCH_FRONT_ENV` / `SEARCH_FRONT_SHA` on the revision).
 #[test]
-fn the_builder_exports_the_build_branch_and_sha_before_the_build() {
-    let mut stage = String::new();
-    let mut position = std::collections::HashMap::new();
-    for (index, instruction) in instructions(&dockerfile()).iter().enumerate() {
-        if let Some(from) = instruction.strip_prefix("FROM ") {
-            stage = from
-                .split_whitespace()
-                .last()
-                .unwrap_or_default()
-                .to_string();
-        } else if stage == "builder" {
-            for name in ["BUILD_BRANCH", "BUILD_SHA"] {
-                if instruction == &format!("ARG {name}") {
-                    position.insert(format!("ARG {name}"), index);
-                }
-                if instruction.starts_with("ENV ")
-                    && instruction.contains(&format!("{name}=${name}"))
-                {
-                    position.insert(format!("ENV {name}"), index);
-                }
-            }
-            if instruction.starts_with("RUN ") && instruction.contains("cargo leptos build") {
-                position.insert("build".to_string(), index);
-            }
-        }
-    }
-    let build = *position
-        .get("build")
-        .expect("the builder runs cargo leptos build");
-    for name in ["BUILD_BRANCH", "BUILD_SHA"] {
-        let arg = position.get(&format!("ARG {name}"));
-        let env = position.get(&format!("ENV {name}"));
-        assert!(arg.is_some(), "the builder stage has no `ARG {name}`");
+fn the_builder_takes_no_build_args() {
+    let instructions = instructions(&dockerfile());
+    let args: Vec<&str> = instructions
+        .iter()
+        .filter_map(|instruction| instruction.strip_prefix("ARG "))
+        .map(|arg| arg.split('=').next().unwrap_or_default().trim())
+        .collect();
+    assert_eq!(
+        args,
+        ["CARGO_LEPTOS"],
+        "the image takes no release argument"
+    );
+    for instruction in instructions.iter().filter(|i| i.starts_with("ENV ")) {
         assert!(
-            env.is_some(),
-            "the builder stage has no `ENV {name}=${name}`"
-        );
-        assert!(
-            arg < env && *env.unwrap() < build,
-            "ARG {name}, then ENV {name}, then cargo leptos build"
+            !instruction.contains("BUILD_BRANCH") && !instruction.contains("BUILD_SHA"),
+            "no ENV carries the build's branch or commit: {instruction}"
         );
     }
 }

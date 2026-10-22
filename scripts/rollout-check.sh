@@ -8,6 +8,11 @@
 #       passed to curl as `-H @file`) or from the ORIGIN_SECRET environment
 #       variable (given to curl on its standard input): never on a command
 #       line, never printed.
+#       The release it must serve (task 028) comes from the environment:
+#       ROLLOUT_EXPECT_ENV (non-empty: `main`, a branch name, or a tag) and
+#       ROLLOUT_EXPECT_SHA (must be SET; empty for a tag, which has no sha).
+#       Either missing is a usage error (2) before any request: a gate that
+#       silently skips is no gate. The other modes neither read nor need them.
 #   scripts/rollout-check.sh --via-worker URL
 #       the public host: the Worker adds the header, this script sends none
 #       (and refuses to be given the secret).
@@ -16,7 +21,9 @@
 #       empty body, without the header and with a wrong one.
 #
 # Checks, each named in the output: `root` (/ is 200 and names the page),
-# `wasm` (the .wasm the page links is served), `search` (/?q=satipatthana is
+# `release` (direct mode only: the page's `search-release-env` and
+# `search-release-sha` metas equal ROLLOUT_EXPECT_ENV and ROLLOUT_EXPECT_SHA:
+# the revision serves the release the deploy meant), `wasm` (the .wasm the page links is served), `search` (/?q=satipatthana is
 # 200 with a result list: a live call to the API), `token` (no token shape —
 # scripts/token-pattern — in the bodies and headers of / and the search),
 # `guard` (without the header, or with a wrong one: 403), `refused`, and,
@@ -28,7 +35,9 @@
 # Chrome is $CHROME, else google-chrome, google-chrome-stable, chromium,
 # chromium-browser or macOS's Google Chrome; each page gets
 # $ROLLOUT_CHROME_TIMEOUT seconds (60), past which it fails.
-# Exit 0 all good, 1 a check failed (named), 2 usage (or no usable
+# Exit 0 all good, 1 a check failed (named), 8 (direct mode only) the `release`
+# check failed: the revision serves another release than the intended one, or
+# no release metas, 2 usage (or no usable
 # token-pattern beside the script, or no usable Chrome), 3 Cloudflare answered
 # with a challenge (cf-mitigated, or a challenge page in Chrome): the runner
 # is not allowed, which says nothing about the service, and is never a pass. 4 (--via-worker only) the Worker itself answered
@@ -80,6 +89,7 @@ if [ "$mode" = direct ]; then
       exit 2
     fi
     secret_mode=file
+    sed -E 's/^[Xx]-[Oo]rigin-[Aa]uth:[[:space:]]*//; s/[[:space:]]*$//' "$header_file" > "$work/secret.value"
   elif [ -n "${ORIGIN_SECRET:-}" ]; then
     case "$ORIGIN_SECRET" in
       *[!A-Za-z0-9._~+/=-]*)
@@ -88,8 +98,17 @@ if [ "$mode" = direct ]; then
         ;;
     esac
     secret_mode=env
+    printf '%s\n' "$ORIGIN_SECRET" > "$work/secret.value"
   else
     echo "rollout-check: no secret: give a HEADER_FILE or set ORIGIN_SECRET" >&2
+    exit 2
+  fi
+  if [ -z "${ROLLOUT_EXPECT_ENV:-}" ]; then
+    echo "rollout-check: usage: the direct mode needs ROLLOUT_EXPECT_ENV, the intended release env (non-empty: main, a branch name or a tag)" >&2
+    exit 2
+  fi
+  if [ -z "${ROLLOUT_EXPECT_SHA+set}" ]; then
+    echo "rollout-check: usage: the direct mode needs ROLLOUT_EXPECT_SHA set (empty for a tag, which has no sha)" >&2
     exit 2
   fi
 elif [ -n "$header_file" ] || [ -n "${ORIGIN_SECRET:-}" ]; then
@@ -97,10 +116,11 @@ elif [ -n "$header_file" ] || [ -n "${ORIGIN_SECRET:-}" ]; then
   exit 2
 fi
 
-fail() { # check message
-  echo "rollout-check: FAIL $1: $2" >&2
-  exit 1
+die() { # exit-code check message
+  echo "rollout-check: FAIL $2: $3" >&2
+  exit "$1"
 }
+fail() { die 1 "$1" "$2"; }
 
 # fetch PATH NAME [auth|anon|wrong]: body in $work/NAME.body, headers in
 # $work/NAME.head; prints the status ("000" when nothing answered).
@@ -175,6 +195,53 @@ status="$(fetch / root "$who")"
 expect root root / "$status" 200
 grep -aFq 'PaliCanon — Search' "$work/root.body" || fail root "/ does not name the page"
 echo "rollout-check: root ok"
+
+# meta_content NAME: prints the content attribute of the first <meta> tag whose
+# name attribute is NAME, whatever the order of its attributes (the tag may
+# span lines). Returns 1 when there is no such tag, 2 when it has no content.
+meta_content() {
+  local tag found=""
+  while IFS= read -r tag; do
+    if grep -Eq "[[:space:]]name=(\"$1\"|'$1')" <<<"$tag"; then
+      found=$tag
+      break
+    fi
+  done < <(tr '\r\n' '  ' < "$work/root.body" | grep -aEo '<meta[[:space:]][^>]*>')
+  [ -n "$found" ] || return 1
+  local attr
+  attr="$(grep -aEo "[[:space:]]content=(\"[^\"]*\"|'[^']*')" <<<"$found" | head -n 1)"
+  [ -n "$attr" ] || return 2
+  attr="${attr#*content=}"
+  printf '%s' "${attr:1:${#attr}-2}"
+}
+
+# shown VALUE: a served value for a message: printable, short, and never the
+# origin secret (a page that echoes it must not make this script print it).
+shown() {
+  if grep -aFq -f "$work/secret.value" <<<"$1"; then
+    printf '<the origin secret>'
+  else
+    printf '%s' "$1" | tr -cd '[:print:]' | head -c 100
+  fi
+}
+
+# check_release META WANT: the served meta must equal the intended value.
+check_release() {
+  local served rc=0
+  served="$(meta_content "$1")" || rc=$?
+  case "$rc" in
+    1) die 8 release "the page has no <meta name=\"$1\"> (intended '$2')" ;;
+    2) die 8 release "the <meta name=\"$1\"> has no content attribute (intended '$2')" ;;
+  esac
+  [ "$served" = "$2" ] \
+    || die 8 release "$1: expected '$2', the page serves '$(shown "$served")'"
+}
+
+if [ "$mode" = direct ]; then
+  check_release search-release-env "$ROLLOUT_EXPECT_ENV"
+  check_release search-release-sha "$ROLLOUT_EXPECT_SHA"
+  echo "rollout-check: release ok"
+fi
 
 wasm="$(grep -aEo '/pkg/[^"'"'"' <>]*\.wasm' "$work/root.body" | head -n 1)"
 [ -n "$wasm" ] || fail wasm "the page links no .wasm"

@@ -25,8 +25,13 @@ Rules:
   revision URL with the header file before the traffic update, `--via-worker`
   on the public host after it, `--refused` on the bare Cloud Run URL; the
   last two never given the secret; exit 3, a Cloudflare challenge, a
-  `::warning::` and not a failure); no inline `curl`; the image build given
-  `BUILD_BRANCH` (`github.ref_name`) and `BUILD_SHA` (`github.sha`); the
+  `::warning::` and not a failure); no inline `curl`; the release on the
+  revision, not in the image (task 028): the image build takes no build arg
+  naming the branch or the commit, a deploy line passes
+  `--update-env-vars "$(scripts/release-values.sh)"`, `--set-env-vars`
+  appears nowhere (it would wipe the revision's other variables), and the
+  step that runs the direct `rollout-check.sh` exports `ROLLOUT_EXPECT_ENV`
+  and `ROLLOUT_EXPECT_SHA` and has its own arm for the gate's exit 8; the
   "already running" skip compares the image of the revision that SERVES the
   traffic (read by `scripts/serving-revision.sh`, which falls back to the
   latest ready revision when the 100% entry follows the latest; an empty
@@ -48,6 +53,7 @@ Rules:
 Exit 0 clean, 1 with one line per violation.
 """
 
+import json
 import pathlib
 import re
 import sys
@@ -118,20 +124,62 @@ def run_lines(doc):
     return lines
 
 
-def check_build_args(name, doc):
-    """The image build gets the branch and the commit the badge shows."""
-    wanted = {"BUILD_BRANCH": "${{ github.ref_name }}", "BUILD_SHA": "${{ github.sha }}"}
-    given = {}
+def check_release(name, doc):
+    """The release is a property of the revision, not of the image (task 028).
+
+    - the image build takes no build arg naming the release (`BUILD_*`, `*GIT*`);
+    - some deploy line writes it: `--update-env-vars` with `release-values.sh`;
+    - `--set-env-vars` appears nowhere (it replaces every variable of the
+      revision: `RUST_LOG`, `SEARCH_API_URL`, the secret references);
+    - the step that runs the direct `rollout-check.sh` (the tagged revision's
+      URL) exports `ROLLOUT_EXPECT_ENV` and `ROLLOUT_EXPECT_SHA` and has an arm
+      for the gate's exit 8 (the page says another release).
+    """
+    found = []
     for step in steps_of(doc):
         if step.get("uses", "").startswith("docker/build-push-action"):
             for line in str((step.get("with") or {}).get("build-args", "")).splitlines():
-                key, _, value = line.strip().partition("=")
-                given[key] = value
-    return [
-        f"{name}: build-args: {key}={value} is required on the image build"
-        for key, value in wanted.items()
-        if given.get(key) != value
-    ]
+                key = line.strip().partition("=")[0]
+                if key.startswith("BUILD_") or "GIT" in key:
+                    found.append(f"{name}: build-args: {key} puts the release in the image: it belongs on the revision (--update-env-vars)")
+    written = any(
+        "--update-env-vars" in line and "release-values.sh" in line
+        for step in steps_of(doc)
+        for line in logical_lines(step.get("run", ""))
+    )
+    if not written:
+        found.append(f'{name}: release: no deploy line writes it: `--update-env-vars "$(scripts/release-values.sh)"` is required')
+    if "--set-env-vars" in json.dumps(doc):
+        found.append(f"{name}: release: --set-env-vars replaces every variable of the revision: use --update-env-vars")
+    return found + check_release_gate(name, doc)
+
+
+def check_release_gate(name, doc):
+    """The direct rollout check is given the release and answers its exit 8."""
+    step = next(
+        (
+            s
+            for s in steps_of(doc)
+            for line in logical_lines(s.get("run", ""))
+            if "rollout-check.sh" in line
+            and not line.startswith("echo")
+            and "--via-worker" not in line
+            and "--refused" not in line
+        ),
+        None,
+    )
+    if step is None:
+        return []
+    lines = logical_lines(step["run"])
+    found = []
+    for var in ("ROLLOUT_EXPECT_ENV", "ROLLOUT_EXPECT_SHA"):
+        assigned = any(re.match(rf"^(export\s+)?{var}=", line) for line in lines)
+        exported = any(re.match(r"^export\b", line) and var in line for line in lines)
+        if not (assigned and exported):
+            found.append(f"{name}: release: the rollout check step must set and export {var} (the release the page must say)")
+    if not any(_exit_code_test("8").search(line) for line in lines):
+        found.append(f"{name}: release: the rollout check step must answer exit 8 (the page says another release) in its own arm")
+    return found
 
 
 def check_rollout_calls(name, doc):
@@ -456,7 +504,7 @@ def check_deploy(name, doc):
         found.append(f"{name}: concurrency: a group per environment (deploy-<env> derived from github.ref) is required")
     if doc.get("concurrency", {}).get("cancel-in-progress") is not False:
         found.append(f"{name}: concurrency: cancel-in-progress must be false (never cancel a rollout)")
-    return found + check_build_args(name, doc) + check_serving_skip(name, doc) + check_rollback(name, doc) + check_rollout_calls(name, doc)
+    return found + check_release(name, doc) + check_serving_skip(name, doc) + check_rollback(name, doc) + check_rollout_calls(name, doc)
 
 
 def check(workflows, actions):

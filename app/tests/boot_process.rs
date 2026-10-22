@@ -56,6 +56,8 @@ fn command(port: u16, search_env: &[(&str, &str)]) -> Command {
         .env_remove("ORIGIN_SECRET")
         .env_remove("LEPTOS_ENV")
         .env_remove("K_SERVICE")
+        .env_remove("SEARCH_FRONT_ENV")
+        .env_remove("SEARCH_FRONT_SHA")
         .env("LEPTOS_OUTPUT_NAME", "search-front")
         .env("LEPTOS_SITE_ADDR", format!("127.0.0.1:{port}"))
         .stdin(Stdio::null())
@@ -216,6 +218,32 @@ fn the_mock_boots_with_no_variables_and_says_so() {
         "{}",
         ended.stdout
     );
+}
+
+#[test]
+fn the_boot_logs_its_release_once() {
+    let cases: [(&[(&str, &str)], &str); 3] = [
+        (&[], "release: env=dev sha=-"),
+        (
+            &[("SEARCH_FRONT_ENV", "v0.1.8")],
+            "release: env=v0.1.8 sha=-",
+        ),
+        (
+            &[
+                ("SEARCH_FRONT_ENV", "main"),
+                ("SEARCH_FRONT_SHA", "0123456789abcdef"),
+            ],
+            "release: env=main sha=0123456",
+        ),
+    ];
+    for (env, line) in cases {
+        let port = free_port();
+        let service = start(port, env);
+        let (status, _) = get(port, "/?q=mindfulness");
+        assert_eq!(status, 200, "{env:?} answers");
+        let ended = finish(service);
+        assert_eq!(ended.stdout.matches(line).count(), 1, "{}", ended.stdout);
+    }
 }
 
 #[test]

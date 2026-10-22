@@ -35,9 +35,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           push: true
-          build-args: |
-            BUILD_BRANCH=${{ github.ref_name }}
-            BUILD_SHA=${{ github.sha }}
       - name: current
         id: current
         run: |
@@ -46,8 +43,22 @@ jobs:
           CURRENT=$(gcloud run revisions describe "$REV" --format='value(spec.containers[0].image)')
           echo "serving=$REV" >> "$GITHUB_OUTPUT"
           echo "running=$([ "$CURRENT" = "$IMAGE_HASH" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: deploy
+        run: |
+          gcloud run deploy svc --image "$IMAGE_HASH" \\
+            --update-env-vars "$(scripts/release-values.sh)" \\
+            --no-traffic --tag t
       - name: rollout
-        run: scripts/rollout-check.sh "$URL" "$HEADER_FILE"
+        run: |
+          ROLLOUT_EXPECT_ENV="$(scripts/release-values.sh env)"
+          ROLLOUT_EXPECT_SHA="$(scripts/release-values.sh sha)"
+          export ROLLOUT_EXPECT_ENV ROLLOUT_EXPECT_SHA
+          RC=0
+          scripts/rollout-check.sh "$URL" "$HEADER_FILE" || RC=$?
+          if [ "$RC" = 8 ]; then
+            echo "::error::another release"
+            exit 1
+          fi
       - name: traffic
         run: gcloud run services update-traffic svc --to-latest
       - name: public
@@ -103,8 +114,8 @@ class Rules(unittest.TestCase):
         self.assertEqual(violations(), [])
 
     def test_a_secret_in_a_run_line_is_refused(self):
-        bad = mutate('run: scripts/rollout-check.sh "$URL" "$HEADER_FILE"',
-                     'run: \'curl -H "x-t: ${{ secrets.TOKEN }}" "$URL"\'')
+        bad = mutate('scripts/rollout-check.sh "$URL" "$HEADER_FILE" || RC=$?',
+                     'curl -H "x-t: ${{ secrets.TOKEN }}" "$URL" || RC=$?')
         self.assertTrue(any("secret in a run" in v for v in violations(bad)))
 
     def test_a_secret_in_a_with_is_allowed(self):
@@ -134,10 +145,10 @@ class Rules(unittest.TestCase):
             "      - name: traffic\n        run: gcloud run services update-traffic svc --to-latest\n"
             '      - name: rollout\n        run: scripts/rollout-check.sh "$URL" "$HEADER_FILE"\n'
         )
-        self.assertTrue(any("traffic" in v for v in violations(bad)))
+        self.assertTrue(any("traffic is moved before" in v for v in violations(bad)))
 
     def test_a_deploy_without_a_check_is_refused(self):
-        bad = mutate('run: scripts/rollout-check.sh "$URL" "$HEADER_FILE"', "run: echo skipped")
+        bad = mutate('scripts/rollout-check.sh "$URL" "$HEADER_FILE" || RC=$?', "echo skipped")
         self.assertTrue(any("rollout-check" in v for v in violations(bad)))
 
     def test_a_build_secret_is_refused(self):
@@ -173,15 +184,6 @@ runs:
 class RolloutCheckCalls(unittest.TestCase):
     """deploy.yml calls scripts/rollout-check.sh by its real interface."""
 
-    def test_the_build_gets_the_branch_and_the_sha(self):
-        for name in ("BUILD_BRANCH", "BUILD_SHA"):
-            bad = mutate(f"            {name}=" + ("${{ github.ref_name }}" if name == "BUILD_BRANCH" else "${{ github.sha }}") + "\n", "")
-            self.assertTrue(any(name in v for v in violations(bad)), name)
-
-    def test_the_build_args_come_from_the_ref_and_the_sha(self):
-        bad = mutate("BUILD_SHA=${{ github.sha }}", "BUILD_SHA=abc")
-        self.assertTrue(any("BUILD_SHA" in v for v in violations(bad)))
-
     def test_the_public_host_is_checked_through_the_worker(self):
         bad = mutate("--via-worker", "")
         self.assertTrue(any("--via-worker" in v for v in violations(bad)))
@@ -206,6 +208,52 @@ class RolloutCheckCalls(unittest.TestCase):
         bad = mutate('scripts/rollout-check.sh --refused "$SERVICE_URL" ||', 'curl "$SERVICE_URL" ||')
         found = violations(bad)
         self.assertTrue(any("curl" in v for v in found))
+
+
+class ReleaseOnTheRevision(unittest.TestCase):
+    """The release is a property of the revision, not of the image (task 028)."""
+
+    def test_the_release_clauses_are_in_the_good_fixture(self):
+        self.assertEqual([v for v in violations() if "release" in v.lower()], [])
+
+    def test_the_image_build_takes_no_release_build_arg(self):
+        for arg in ("BUILD_BRANCH=${{ github.ref_name }}", "BUILD_SHA=${{ github.sha }}", "GIT_SHA=${{ github.sha }}"):
+            bad = mutate("push: true", "push: true\n          build-args: |\n            " + arg)
+            self.assertTrue(any("build-args" in v for v in violations(bad)), arg)
+
+    def test_a_build_arg_that_is_not_the_release_passes(self):
+        ok = mutate("push: true", "push: true\n          build-args: |\n            RUST_VERSION=1.91")
+        self.assertEqual(violations(ok), [])
+
+    def test_the_deploy_writes_the_release_with_update_env_vars(self):
+        bad = mutate(' \\\n            --update-env-vars "$(scripts/release-values.sh)"', "")
+        self.assertTrue(any("--update-env-vars" in v for v in violations(bad)))
+
+    def test_the_variables_written_must_come_from_release_values(self):
+        bad = mutate('--update-env-vars "$(scripts/release-values.sh)"', "--update-env-vars FOO=bar")
+        self.assertTrue(any("release-values.sh" in v for v in violations(bad)))
+
+    def test_the_set_variant_of_the_flag_is_refused_anywhere(self):
+        bad = mutate('--update-env-vars "$(scripts/release-values.sh)"', '--update-env-vars "$(scripts/release-values.sh)" --set-env-vars A=b')
+        self.assertTrue(any("--set-env-vars" in v for v in violations(bad)))
+        bad = mutate('--update-env-vars "$(scripts/release-values.sh)"', '--set-env-vars "$(scripts/release-values.sh)"')
+        self.assertTrue(any("--set-env-vars" in v for v in violations(bad)))
+
+    def test_the_direct_rollout_check_is_given_the_expected_release(self):
+        for name in ("ROLLOUT_EXPECT_ENV", "ROLLOUT_EXPECT_SHA"):
+            bad = mutate("export ROLLOUT_EXPECT_ENV ROLLOUT_EXPECT_SHA", "export " + ("ROLLOUT_EXPECT_SHA" if name == "ROLLOUT_EXPECT_ENV" else "ROLLOUT_EXPECT_ENV"))
+            self.assertTrue(any(name in v for v in violations(bad)), name)
+        bad = mutate('ROLLOUT_EXPECT_SHA="$(scripts/release-values.sh sha)"\n', "")
+        self.assertTrue(any("ROLLOUT_EXPECT_SHA" in v for v in violations(bad)))
+
+    def test_exit_8_must_have_its_own_arm(self):
+        bad = mutate('if [ "$RC" = 8 ]; then', 'if [ "$RC" = 9 ]; then')
+        self.assertTrue(any("exit 8" in v for v in violations(bad)))
+
+    def test_the_worker_and_refused_checks_are_not_asked_for_the_release(self):
+        # The pair: the good fixture's --via-worker and --refused calls export
+        # nothing and are not flagged.
+        self.assertEqual(violations(), [])
 
 
 class ServingRevision(unittest.TestCase):
