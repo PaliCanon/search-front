@@ -115,3 +115,7 @@ flowchart TB
 | Apply | done | orchestrator, 2026-10-22: `tofu plan` with prod.tfvars: no resource change (the revision ignore added first, 210c31e); `tofu apply` complete: 0 added, 0 changed, 0 destroyed |
 | Check | done | the user's go for the badge on search/map/learn (2026-10-22); orchestrator: F1 diff read; the dev metas read after the merge |
 | Merge | done | 861e269 on main (squash), pushed: the dev deploy is the first env write (the image tag changes once: the Dockerfile); prod by tag v0.1.7 after the dev metas are read |
+| Prod | done | tag v0.1.7: the prod badge reads `v0.1.7` alone (metas env=v0.1.7, sha empty) |
+
+## Retro
+One line (rank 3, light path since 2026-10-22): the twin of a merged design costs a third of the original when the lanes copy the model inline; the first dev deploy still failed once on the cold engine (task 029 opened); the lead found two repo differences the briefs had copied from learn-pali (no workflow_dispatch, the revision ignore) only at integration and at the orchestrator's tofu plan: a twin task probes the repo's deploy and lifecycle before copying.
