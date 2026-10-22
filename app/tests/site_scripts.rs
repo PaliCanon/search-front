@@ -681,6 +681,42 @@ fn starting_then(path: &'static str, times: u16, final_body: String) -> Handler 
     })
 }
 
+/// A server that answers `path` with 503 (Cold) `times` times,
+/// then with `final_body` at 200.
+fn cold_then(path: &'static str, times: u16, final_body: String) -> Handler {
+    let count: Arc<Mutex<u16>> = Arc::new(Mutex::new(0));
+    Box::new(move |r| {
+        if !r.authed() || r.path != path {
+            return healthy(r);
+        }
+        let mut c = count.lock().expect("lock");
+        *c += 1;
+        if *c <= times {
+            Resp::new(503, "").with("content-type", "text/html")
+        } else {
+            Resp::new(200, &final_body).with("content-type", "text/html")
+        }
+    })
+}
+
+/// A server that answers `path` with a 200 page without results `times` times,
+/// then with `final_body` at 200.
+fn no_results_then(path: &'static str, times: u16, final_body: String) -> Handler {
+    let count: Arc<Mutex<u16>> = Arc::new(Mutex::new(0));
+    Box::new(move |r| {
+        if !r.authed() || r.path != path {
+            return healthy(r);
+        }
+        let mut c = count.lock().expect("lock");
+        *c += 1;
+        if *c <= times {
+            Resp::new(200, &page("")).with("content-type", "text/html")
+        } else {
+            Resp::new(200, &final_body).with("content-type", "text/html")
+        }
+    })
+}
+
 const SEARCH: &str = "/?q=satipatthana";
 
 fn rollout_status_cases() -> Vec<Case> {
@@ -854,6 +890,95 @@ fn rollout_check_fails_immediately_on_bad_page_without_starting_marker() {
     assert!(
         !text.contains("the engine is starting"),
         "no retry messages: {text}"
+    );
+}
+
+/// The engine returns 503 (Cold) twice, then results: the check should
+/// retry and pass.
+#[test]
+fn rollout_check_retries_while_the_engine_is_cold() {
+    let fake = Fake::start(cold_then(SEARCH, 2, page(RESULTS)));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &with_release(&[("ORIGIN_SECRET", SECRET)]),
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(0), "passes after retries: {text}");
+    assert!(
+        text.contains("search ok"),
+        "the search check passes: {text}"
+    );
+    // Should see retry messages indicating the engine was warming.
+    assert!(
+        text.contains("warming the engine"),
+        "saw warming messages: {text}"
+    );
+}
+
+/// The engine always returns 503 (Cold): the check should fail after
+/// the retry bound.
+#[test]
+fn rollout_check_fails_after_retries_if_engine_never_warms_cold() {
+    let fake = Fake::start(cold_then(SEARCH, 999, page(RESULTS)));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &with_release(&[
+            ("ORIGIN_SECRET", SECRET),
+            ("ROLLOUT_SEARCH_TRIES", "3"),
+            ("ROLLOUT_SEARCH_WAIT", "0"),
+        ]),
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(1), "fails: {text}");
+    assert!(text.contains("search"), "names the search check: {text}");
+}
+
+/// A 200 page without results (cold) twice, then results: the check should
+/// retry and pass.
+#[test]
+fn rollout_check_retries_a_200_page_without_results() {
+    let fake = Fake::start(no_results_then(SEARCH, 2, page(RESULTS)));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &with_release(&[("ORIGIN_SECRET", SECRET)]),
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(0), "passes after retries: {text}");
+    assert!(
+        text.contains("search ok"),
+        "the search check passes: {text}"
+    );
+    // Should see retry messages indicating the engine was warming.
+    assert!(
+        text.contains("warming the engine"),
+        "saw warming messages: {text}"
+    );
+}
+
+/// A 200 page always without results (cold): the check should fail after
+/// the retry bound with the existing failure message.
+#[test]
+fn rollout_check_fails_after_retries_if_200_page_never_has_results() {
+    let fake = Fake::start(no_results_then(SEARCH, 999, page(RESULTS)));
+    let out = run(
+        &check_script(),
+        &[&fake.url()],
+        &with_release(&[
+            ("ORIGIN_SECRET", SECRET),
+            ("ROLLOUT_SEARCH_TRIES", "3"),
+            ("ROLLOUT_SEARCH_WAIT", "0"),
+        ]),
+    );
+    let text = printed(&out);
+    assert_eq!(out.status.code(), Some(1), "fails: {text}");
+    assert!(text.contains("search"), "names the search check: {text}");
+    // Should see the existing "has no result list" message, not "did not warm".
+    assert!(
+        text.contains("has no result list"),
+        "existing failure message: {text}"
     );
 }
 

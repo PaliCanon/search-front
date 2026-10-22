@@ -250,12 +250,27 @@ expect wasm wasm "$wasm" "$status" 200
 echo "rollout-check: wasm ok"
 
 # Search check with retry for a cold engine.
-# The engine may be starting (page has role="alert"), and we should retry.
+# The engine may be cold (503 or 200 with no results) or starting (role="alert"), and we should retry.
 ROLLOUT_SEARCH_TRIES="${ROLLOUT_SEARCH_TRIES:-12}"
 ROLLOUT_SEARCH_WAIT="${ROLLOUT_SEARCH_WAIT:-10}"
 
 for try in $(seq 1 "$ROLLOUT_SEARCH_TRIES"); do
   status="$(fetch '/?q=satipatthana' search "$who")"
+
+  # If the engine is cold (503), retry
+  if [ "$status" = "503" ]; then
+    if [ "$try" -lt "$ROLLOUT_SEARCH_TRIES" ]; then
+      echo "rollout-check: search: warming the engine ($try/$ROLLOUT_SEARCH_TRIES)" >&2
+      sleep "$ROLLOUT_SEARCH_WAIT"
+    else
+      # Failed after all retries
+      total_time=$((ROLLOUT_SEARCH_TRIES * ROLLOUT_SEARCH_WAIT))
+      fail search "the engine did not warm in $total_time s"
+    fi
+    continue
+  fi
+
+  # For non-503 responses, expect 200
   expect search search '/?q=satipatthana' "$status" 200
 
   # Check if we have a result list
@@ -275,8 +290,14 @@ for try in $(seq 1 "$ROLLOUT_SEARCH_TRIES"); do
       fail search "the engine did not start in $total_time s"
     fi
   else
-    # No results and no starting marker: fail immediately
-    fail search "/?q=satipatthana has no result list"
+    # No results and no starting marker: the page is cold
+    if [ "$try" -lt "$ROLLOUT_SEARCH_TRIES" ]; then
+      echo "rollout-check: search: warming the engine ($try/$ROLLOUT_SEARCH_TRIES)" >&2
+      sleep "$ROLLOUT_SEARCH_WAIT"
+    else
+      # Failed after all retries
+      fail search "/?q=satipatthana has no result list"
+    fi
   fi
 done
 
