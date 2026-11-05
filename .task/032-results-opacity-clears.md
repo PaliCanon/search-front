@@ -9,7 +9,7 @@ Bind the results wrapper's `class` and `aria-busy` attributes reactively to the 
 ## Log
 | Step | Result | Output |
 | --- | --- | --- |
-| Build | done | `cargo fmt --all --check`; `cargo check -p search_front --features ssr --offline`; `cargo check -p search_front --features hydrate --target wasm32-unknown-unknown --offline` (workspace patch uses ../ui-lib v0.4.12) |
+| Build | done | `cargo fmt --all --check`; `leptosfmt` corrected the reactive attributes after CI caught formatting missed by rustfmt; SSR and hydrate checks pass with the workspace patch (`../ui-lib` v0.4.12) |
 | Verify | pending | CI and the dev rollout |
 | Merge | pending | |
 | Production | pending | |

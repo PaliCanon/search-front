@@ -295,8 +295,20 @@ fn area_view(area: &Area<'_>, key: &SearchKey, base: &str, pending: ReadSignal<b
         .map(|outcome| outcome_view(outcome, key.href(base)));
     view! {
         <div
-            aria-busy=move || Area { outcome: None, busy: pending.get() }.aria_busy()
-            class=move || Area { outcome: None, busy: pending.get() }.class()
+            aria-busy=move || {
+                Area {
+                    outcome: None,
+                    busy: pending.get(),
+                }
+                    .aria_busy()
+            }
+            class=move || {
+                Area {
+                    outcome: None,
+                    busy: pending.get(),
+                }
+                    .class()
+            }
         >
             {shown}
         </div>
