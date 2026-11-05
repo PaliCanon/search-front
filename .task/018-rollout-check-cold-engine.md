@@ -12,3 +12,6 @@ The pre-traffic `search` check of `scripts/rollout-check.sh` requests `/?q=satip
 | Found | done | orchestrator, 2026-10-15; the deploy re-run by hand after warming the engine |
 | Build | done | lane (Haiku) 2be1192: retry loop on the ColdState marker `role="alert"`, ROLLOUT_SEARCH_TRIES 12 / ROLLOUT_SEARCH_WAIT 10; 3 tests red then green (27 pass); fmt, clippy 0. The lane logged no row: written by the orchestrator. |
 | Orchestrator check | done | the error state shares `role="alert"`, so an error page is retried 12 times then fails with "did not start": acceptable, the failure still fires. No user check (a script). |
+
+## Retro
+One line (light path): retrying the broad `role="alert"` marker could spend the full wait on unrelated errors; task 029 replaced this with a cold-engine warm-up that judges the actual result state. No Studio conversation exists for this light-path task to archive.
