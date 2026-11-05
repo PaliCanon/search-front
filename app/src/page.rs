@@ -264,8 +264,12 @@ fn ResultsArea(
 ) -> impl IntoView {
     let (pending, set_pending) = signal(false);
     view! {
+        <div
+            aria-busy=move || pending_view(None, pending.get()).aria_busy()
+            class=move || pending_view(None, pending.get()).class()
+        >
         <Transition
-            fallback=|| view! { <div aria-busy="true" class=pending::DIM></div> }
+            fallback=|| view! { <div></div> }
             set_pending=set_pending
         >
             {move || {
@@ -274,16 +278,16 @@ fn ResultsArea(
                     &pending_view(held.as_ref(), pending.get()),
                     &key.get(),
                     &base.get(),
-                    pending,
                 )
             }}
         </Transition>
+        </div>
     }
 }
 
 /// One state of the results area: its wrapper (busy or not) around the
 /// outcome's view. A settled outcome is also written to the response.
-fn area_view(area: &Area<'_>, key: &SearchKey, base: &str, pending: ReadSignal<bool>) -> AnyView {
+fn area_view(area: &Area<'_>, key: &SearchKey, base: &str) -> AnyView {
     #[cfg(feature = "ssr")]
     if let Some(outcome) = area.outcome
         && !area.busy
@@ -293,27 +297,7 @@ fn area_view(area: &Area<'_>, key: &SearchKey, base: &str, pending: ReadSignal<b
     let shown = area
         .outcome
         .map(|outcome| outcome_view(outcome, key.href(base)));
-    view! {
-        <div
-            aria-busy=move || {
-                Area {
-                    outcome: None,
-                    busy: pending.get(),
-                }
-                    .aria_busy()
-            }
-            class=move || {
-                Area {
-                    outcome: None,
-                    busy: pending.get(),
-                }
-                    .class()
-            }
-        >
-            {shown}
-        </div>
-    }
-    .into_any()
+    view! { <div>{shown}</div> }.into_any()
 }
 
 /// What the page shows for an outcome: the hits (or none), or the state
