@@ -270,7 +270,12 @@ fn ResultsArea(
         >
             {move || {
                 let held = outcome.get();
-                area_view(&pending_view(held.as_ref(), pending.get()), &key.get(), &base.get())
+                area_view(
+                    &pending_view(held.as_ref(), pending.get()),
+                    &key.get(),
+                    &base.get(),
+                    pending,
+                )
             }}
         </Transition>
     }
@@ -278,7 +283,7 @@ fn ResultsArea(
 
 /// One state of the results area: its wrapper (busy or not) around the
 /// outcome's view. A settled outcome is also written to the response.
-fn area_view(area: &Area<'_>, key: &SearchKey, base: &str) -> AnyView {
+fn area_view(area: &Area<'_>, key: &SearchKey, base: &str, pending: ReadSignal<bool>) -> AnyView {
     #[cfg(feature = "ssr")]
     if let Some(outcome) = area.outcome
         && !area.busy
@@ -289,7 +294,22 @@ fn area_view(area: &Area<'_>, key: &SearchKey, base: &str) -> AnyView {
         .outcome
         .map(|outcome| outcome_view(outcome, key.href(base)));
     view! {
-        <div aria-busy=area.aria_busy() class=area.class()>
+        <div
+            aria-busy=move || {
+                Area {
+                    outcome: None,
+                    busy: pending.get(),
+                }
+                    .aria_busy()
+            }
+            class=move || {
+                Area {
+                    outcome: None,
+                    busy: pending.get(),
+                }
+                    .class()
+            }
+        >
             {shown}
         </div>
     }
