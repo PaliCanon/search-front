@@ -1,13 +1,20 @@
-# The public name of the site: <host> → a Worker that relays to Cloud Run.
-# Cloudflare sits in front (WAF, rate limits). The zone itself is the site's
-# (palisearch infra).
+# The public name of the site was <host> → a Worker that relays to Cloud Run.
+# Since task 035, search.palicanon.app is served by the container on the
+# user's server, through the lsh-tech tunnel (Lsh0x/lsh-tech, stack palicanon
+# prod), so no env has a Worker any more: worker_envs is empty, and this
+# file goes with Cloud Run prod. The zone itself is the site's (palisearch
+# infra).
+
+locals {
+  worker_envs = { for env, cfg in var.envs : env => cfg if env != "prod" }
+}
 
 data "cloudflare_zone" "site" {
   name = "palicanon.app"
 }
 
 resource "cloudflare_workers_script" "proxy" {
-  for_each   = var.envs
+  for_each   = local.worker_envs
   account_id = var.cloudflare_account_id
   name       = "search-front-${each.key}"
   content    = file("${path.module}/worker/proxy.js")
@@ -41,7 +48,7 @@ resource "cloudflare_workers_script" "proxy" {
 # creates the proxied DNS record itself and issues the certificate for the
 # exact host, so there is no record and no route to declare.
 resource "cloudflare_workers_domain" "app" {
-  for_each    = var.envs
+  for_each    = local.worker_envs
   account_id  = var.cloudflare_account_id
   zone_id     = data.cloudflare_zone.site.id
   hostname    = each.value.host
