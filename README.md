@@ -66,7 +66,7 @@ Cloudflare tunnel, unset `ORIGIN_SECRET` means no origin check. A configured
 value enables the guard on every host; a blank value always refuses startup.
 Production still requires a real search source (`SEARCH_API_URL` and
 `SEARCH_API_TOKEN`): relaxing the origin requirement never enables the mock.
-The Worker and bare-origin deployment checks remain unchanged on Cloud Run.
+Cloud Run is gone, so that branch is dead code: prod runs behind the tunnel.
 Set `SEARCH_FRONT_DEPLOYMENT_ENV=production` for production log metadata on the tunnel host.
 
 ## Operational logs
@@ -147,10 +147,6 @@ bundle check above, the deploy's own tests and `tofu fmt`/`validate`:
 ```sh
 bash scripts/manifest-ref.test.sh      # the ref a manifest names for a git dependency
 python3 scripts/check_workflows_test.py && python3 scripts/check_workflows.py
-bash infra/scripts/origin-secret.test.sh
-bash infra/scripts/lifecycle.test.sh
-bash scripts/release-values.test.sh
-node --test 'infra/worker/*.test.mjs'  # the Worker
 (cd infra && tofu fmt -check -recursive && tofu init -backend=false && tofu validate)
 ```
 
@@ -158,22 +154,28 @@ Functions stay under 50 lines (`clippy.toml`).
 
 ## Deploy
 
-A `v*` tag deploys `search.palicanon.app` (`.github/workflows/deploy.yml`, the
-model is learn-pali's); a push to `main` runs CI only and deploys nothing.
-There is no dev environment. Cloudflare (a Worker per host) is the only way in: the service
-answers 403 to any request without the Worker's `x-origin-auth` secret, so the
-`*.run.app` URL is closed. The image is built with **no credential**
-(`Dockerfile`): ui-lib and the API client are COPYed as sibling checkouts, and
-`Cargo.lock` holds no git source. CI's three checkouts (this repository,
-`ui-lib`, `api`) use a GitHub App token (`.github/actions/siblings`); the
-repository secrets are `APP_ID` and `APP_PRIVATE_KEY`, the variables
-`WIF_PROVIDER`, `DEPLOYER_SA` and `GCP_PROJECT`. The infrastructure, the
-Worker and the ordered first-time commands are in `infra/README.md`.
-The public-host check (`scripts/rollout-check.sh --via-worker`) also loads
-`/`, a search and `/privacy` in headless Chrome (`$CHROME`) and fails on a
-hydration panic or a page without `<html data-hydrated>` (ui-lib 063).
+Prod runs on the user's server (ssh.lsh.tech, repository `Lsh0x/lsh-tech`,
+stack `palicanon/prod`), behind a Cloudflare tunnel, at
+`search.palicanon.app`. A `v*` tag runs `.github/workflows/deploy.yml`, which
+builds the image and pushes it to GHCR (`ghcr.io/palicanon/search-front`, tags
+`h-<content hash>` and the release tag; an image whose hash tag exists is not
+rebuilt) and writes the digest to the run's summary. The stack pulls the image
+**by digest**: it is updated from the summary by hand. A push to `main` runs CI
+only. There is no dev environment, no Cloud Run, no Worker.
 
-The footer badge is the deploy's, not the image's: it says which ref was rolled out, so the image is identical across refs (`app/tests/no_build_git.rs`: the build reads no git). `deploy.yml` writes `SEARCH_FRONT_ENV` and `SEARCH_FRONT_SHA` onto the Cloud Run revision with `gcloud run deploy --update-env-vars`, the values from `scripts/release-values.sh`. A prod tag `v0.1.8` shows `v0.1.8` alone, a branch shows `<branch> · <sha7>`, a local run `dev`, and a page whose metas are missing shows `unknown` in the browser. Every tag makes a new revision, even with the same image. The rollout gate (`scripts/rollout-check.sh URL`, which needs `ROLLOUT_EXPECT_ENV` and `ROLLOUT_EXPECT_SHA`, the second may be empty for a tag) fails with exit 8 when the served metas differ from the intended release. The deploy uses `--update-env-vars` and never `--set-env-vars`, which would wipe the rest of the env. Tofu ignores the container env, so its apply comes before the first deploy that writes it (`infra/README.md`).
+The image is built with **no credential** (`Dockerfile`): ui-lib and the API
+client are COPYed as sibling checkouts, and `Cargo.lock` holds no git source.
+CI's three checkouts (this repository, `ui-lib`, `api`) use a GitHub App token
+(`.github/actions/siblings`); the repository secrets are `APP_ID` and
+`APP_PRIVATE_KEY`. The GHCR push uses the job's `GITHUB_TOKEN`
+(`packages: write`). The API token secret is in `infra/README.md`.
+
+The footer badge reads `SEARCH_FRONT_ENV` and `SEARCH_FRONT_SHA` from the
+container's environment (the stack's to set; unset, the badge reads `dev`); the image is identical across
+refs (`app/tests/no_build_git.rs`: the build reads no git). A page whose metas
+are missing shows `unknown` in the browser, a local run `dev`.
+`scripts/rollout-check.sh URL` stays as a by-hand check of a running site (its
+`--via-worker` mode is dead with the Worker).
 
 ## What it never holds
 

@@ -245,11 +245,9 @@ jobs:
       - run: scripts/check-wasm-no-token.sh
 
   scripts:
-    # The shell, Python and Node tests that guard the deploy: the release
-    # values and the steps that write them (release-values.test.sh), the
-    # tofu lifecycle that must not strip them (lifecycle.test.sh), the
-    # workflow rules, the Worker.
-    name: scripts, workflows, Worker
+    # The shell and Python tests that guard the image build: the workflow
+    # rules (GHCR push, no Cloud Run) and the sibling manifest reader.
+    name: scripts, workflows
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -260,21 +258,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pyyaml
-      - run: python3 scripts/infra_probe_test.py
       - run: python3 scripts/check_workflows_test.py
       - run: python3 scripts/check_workflows.py
       - run: bash scripts/manifest-ref.test.sh
-      - run: bash scripts/serving-revision.test.sh
-      - run: bash scripts/release-values.test.sh
-      - run: bash infra/scripts/origin-secret.test.sh
-      - run: bash infra/scripts/lifecycle.test.sh
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      # A quoted glob, not the directory: node 22 (the job's) runs a directory
-      # argument as a module and fails with "Cannot find module" (node 26 on a
-      # laptop walks it, which hid it).
-      - run: node --test 'infra/worker/*.test.mjs'
 
   tofu:
     name: tofu (fmt, validate)

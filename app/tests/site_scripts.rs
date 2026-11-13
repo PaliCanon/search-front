@@ -159,7 +159,7 @@ fn answer(mut stream: TcpStream, handler: &impl Fn(&Req) -> Resp, seen: &Mutex<V
 const WASM: &str = "/pkg/search-front.4f2a9c.wasm";
 
 /// The release the fake deployment serves (task 028): a branch build, as
-/// `scripts/release-values.sh` prints it for `main`.
+/// the deploy used to print it for `main`.
 const EXPECT_ENV: &str = "main";
 const EXPECT_SHA: &str = "34c489c";
 

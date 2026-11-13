@@ -13,19 +13,14 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 6.0"
     }
-    cloudflare = {
-      source  = "cloudflare/cloudflare"
-      version = "~> 4.52"
-    }
   }
 }
 
 # Credentials come from the environment: gcloud auth application-default
-# login, and CLOUDFLARE_API_TOKEN (zone DNS and Workers routes, account
-# Workers scripts). Nothing is read from a file in this repository.
+# login. Nothing is read from a file in this repository. No Cloudflare
+# provider: no Cloudflare resource is left in this state (the Worker went with
+# task 035, the zone is the site's).
 provider "google" {
   project = var.gcp_project
   region  = var.region
 }
-
-provider "cloudflare" {}

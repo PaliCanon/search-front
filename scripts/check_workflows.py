@@ -8,7 +8,8 @@ deploy design depends on (task 007), checked as YAML.
 
 Rules:
 - every file parses as YAML;
-- a workflow declares `permissions`, read-only except `id-token: write`;
+- a workflow declares `permissions`, read-only; a job may add `packages: write`
+  (the one write scope, for the GHCR push) and never `id-token: write`;
 - no `${{ secrets.* }}` inside a `run:` line (a secret goes through `env:` or
   `with:`, never into a shell command that a log or `set -x` could show);
 - every `uses:` names a version (`@...`), local actions apart;
@@ -20,41 +21,20 @@ Rules:
   a directory as a module and fails with "Cannot find module", F3 of 007);
 - no `docker/build-push-action` takes `secrets:` or `ssh:` (the build needs
   no credential, ruling R1);
-- deploy.yml: triggered by a `v*` tag only (a push to a branch deploys
-  nothing, and no value names a dev environment); the concurrency group
-  `deploy-prod`, which never cancels a rollout in progress; `rollout-check.sh` called by its real interface (the
-  revision URL with the header file before the traffic update, `--via-worker`
-  on the public host after it, `--refused` on the bare Cloud Run URL; the
-  last two never given the secret; exit 3, a Cloudflare challenge, a
-  `::warning::` and not a failure); no inline `curl`; the release on the
-  revision, not in the image (task 028): the image build takes no build arg
-  naming the branch or the commit, a deploy line passes
-  `--update-env-vars "$(scripts/release-values.sh)"`, `--set-env-vars`
-  appears nowhere (it would wipe the revision's other variables), and the
-  step that runs the direct `rollout-check.sh` exports `ROLLOUT_EXPECT_ENV`
-  and `ROLLOUT_EXPECT_SHA` and has its own arm for the gate's exit 8; the
-  "already running" skip compares the image of the revision that SERVES the
-  traffic (read by `scripts/serving-revision.sh`, which falls back to the
-  latest ready revision when the 100% entry follows the latest; an empty
-  result fails the job with an `::error::`), never `spec.template`, which
-  already holds a half-finished rollout's new image. The public-host step
-  rolls the traffic back (`update-traffic --to-revisions`, in a `rollback`
-  function whose failure is reported and never masks the check's exit code)
-  only in the arm of exit 1 (a refusal or a failed content check) of
-  `--via-worker`; never on exit 3 (a Cloudflare challenge), nor on exit 4
-  (the Worker answered 500: an `::error::` naming `origin-secret push`), nor
-  when the bare URL fails `--refused` (both revisions boot from the same env:
-  a rollback restores nothing, so the job fails with an `::error::` naming
-  the service's `ORIGIN_SECRET` env and the traffic is left as is). The arms
-  are read as arms (`shell_contexts`), not as text offsets. The `rollback`
-  function observes its outcome: after the update it reads `status.traffic`
-  back (`describe | scripts/serving-revision.sh`) and, when the previous
-  revision does not serve, ends in `::error::rollback did not restore <prev>`
-  and `exit 5`; otherwise the caller's arm exits with the check's code.
+- deploy.yml: a `v*` tag only, concurrency group `deploy-prod` that never
+  cancels, no dev environment; the image job logs in to GHCR
+  (`docker/login-action`, `ghcr.io`, `github.actor`, `secrets.GITHUB_TOKEN`
+  by `with:`) and has job `permissions` `contents: read` + `packages: write`;
+  no Cloud Run left (no google-github-actions, no gcloud, run.app,
+  docker.pkg.dev, update-traffic, --via-worker, id-token); the build pushes,
+  labels `org.opencontainers.image.source`, tags `ghcr.io/` and the release
+  (`github.ref_name`), takes no `build-args`, and is skipped by
+  `steps.<check>.outputs.exists != 'true'`, the check being
+  `docker buildx imagetools inspect`; a step writes `$GITHUB_STEP_SUMMARY`
+  with `imagetools inspect` and `@$DIGEST`.
 Exit 0 clean, 1 with one line per violation.
 """
 
-import json
 import pathlib
 import re
 import sys
@@ -71,17 +51,35 @@ def steps_of(doc):
         yield from doc.get("runs", {}).get("steps", [])
 
 
+def jobs_of(doc):
+    return (doc.get("jobs") or {}).items()
+
+
 def check_permissions(name, doc):
+    """Workflow level: required, read or none. Job level: the same, plus `packages: write`."""
     if "jobs" not in doc:
         return []
     perms = doc.get("permissions")
     if not isinstance(perms, dict):
         return [f"{name}: permissions: a workflow must declare a minimal `permissions`"]
-    bad = [
-        scope for scope, level in perms.items()
-        if level not in ("read", "none") and not (scope == "id-token" and level == "write")
+    found = [
+        f"{name}: permissions: `{scope}: {level}` is more than read at workflow level"
+        for scope, level in perms.items()
+        if level not in ("read", "none")
     ]
-    return [f"{name}: permissions: `{scope}` is more than read (only id-token: write is allowed)" for scope in bad]
+    for job_name, job in jobs_of(doc):
+        job_perms = job.get("permissions")
+        if job_perms is None:
+            continue
+        if not isinstance(job_perms, dict):
+            found.append(f"{name}: permissions: job `{job_name}` must list its scopes (read, or `packages: write`)")
+            continue
+        found += [
+            f"{name}: permissions: job `{job_name}`: `{scope}: {level}` is more than read (only packages: write is allowed)"
+            for scope, level in job_perms.items()
+            if level not in ("read", "none") and not (scope == "packages" and level == "write")
+        ]
+    return found
 
 
 def check_node_test(name, run):
@@ -125,364 +123,6 @@ def run_lines(doc):
     return lines
 
 
-def check_release(name, doc):
-    """The release is a property of the revision, not of the image (task 028).
-
-    - the image build takes no build arg naming the release (`BUILD_*`, `*GIT*`);
-    - some deploy line writes it: `--update-env-vars` with `release-values.sh`;
-    - `--set-env-vars` appears nowhere (it replaces every variable of the
-      revision: `RUST_LOG`, `SEARCH_API_URL`, the secret references);
-    - the step that runs the direct `rollout-check.sh` (the tagged revision's
-      URL) exports `ROLLOUT_EXPECT_ENV` and `ROLLOUT_EXPECT_SHA` and has an arm
-      for the gate's exit 8 (the page says another release).
-    """
-    found = []
-    for step in steps_of(doc):
-        if step.get("uses", "").startswith("docker/build-push-action"):
-            for line in str((step.get("with") or {}).get("build-args", "")).splitlines():
-                key = line.strip().partition("=")[0]
-                if key.startswith("BUILD_") or "GIT" in key:
-                    found.append(f"{name}: build-args: {key} puts the release in the image: it belongs on the revision (--update-env-vars)")
-    written = any(
-        "--update-env-vars" in line and "release-values.sh" in line
-        for step in steps_of(doc)
-        for line in logical_lines(step.get("run", ""))
-    )
-    if not written:
-        found.append(f'{name}: release: no deploy line writes it: `--update-env-vars "$(scripts/release-values.sh)"` is required')
-    if "--set-env-vars" in json.dumps(doc):
-        found.append(f"{name}: release: --set-env-vars replaces every variable of the revision: use --update-env-vars")
-    return found + check_release_gate(name, doc)
-
-
-def check_release_gate(name, doc):
-    """The direct rollout check is given the release and answers its exit 8."""
-    step = next(
-        (
-            s
-            for s in steps_of(doc)
-            for line in logical_lines(s.get("run", ""))
-            if "rollout-check.sh" in line
-            and not line.startswith("echo")
-            and "--via-worker" not in line
-            and "--refused" not in line
-        ),
-        None,
-    )
-    if step is None:
-        return []
-    lines = logical_lines(step["run"])
-    found = []
-    for var in ("ROLLOUT_EXPECT_ENV", "ROLLOUT_EXPECT_SHA"):
-        assigned = any(re.match(rf"^(export\s+)?{var}=", line) for line in lines)
-        exported = any(re.match(r"^export\b", line) and var in line for line in lines)
-        if not (assigned and exported):
-            found.append(f"{name}: release: the rollout check step must set and export {var} (the release the page must say)")
-    if not any(_exit_code_test("8").search(line) for line in lines):
-        found.append(f"{name}: release: the rollout check step must answer exit 8 (the page says another release) in its own arm")
-    return found
-
-
-def check_rollout_calls(name, doc):
-    """`scripts/rollout-check.sh [--via-worker | --refused] URL [HEADER_FILE]`."""
-    found = []
-    lines = run_lines(doc)
-    calls = {"direct": [], "--via-worker": [], "--refused": []}
-    for at, line in enumerate(lines):
-        if "rollout-check.sh" not in line:
-            continue
-        mode = next((m for m in ("--via-worker", "--refused") if m in line), "direct")
-        calls[mode].append(at)
-        if mode != "direct" and re.search(r"HEADER_FILE|ORIGIN_SECRET|origin-header", line):
-            found.append(f"{name}: rollout-check.sh {mode} must not be given the secret: {line.strip()[:60]}")
-    traffic = next((at for at, line in enumerate(lines) if "update-traffic" in line), -1)
-    if not calls["direct"]:
-        found.append(f"{name}: no step runs scripts/rollout-check.sh URL HEADER_FILE on the tagged revision")
-    if traffic < 0:
-        found.append(f"{name}: no step moves the traffic (update-traffic)")
-    if calls["direct"] and 0 <= traffic < calls["direct"][0]:
-        found.append(f"{name}: traffic is moved before rollout-check.sh runs")
-    for mode in ("--via-worker", "--refused"):
-        if not calls[mode]:
-            found.append(f"{name}: no step runs scripts/rollout-check.sh {mode} URL")
-    if calls["--via-worker"] and 0 <= traffic and calls["--via-worker"][0] < traffic:
-        found.append(f"{name}: rollout-check.sh --via-worker runs before the traffic moves")
-    if calls["--via-worker"]:
-        step = next(
-            s for s in steps_of(doc) if "--via-worker" in s.get("run", "")
-        )
-        if "::warning::" not in step["run"] or not re.search(r"\b3\b", step["run"]):
-            found.append(f"{name}: rollout-check.sh --via-worker: exit 3 (a Cloudflare challenge) must end in a ::warning::, not a failure")
-    if any(re.search(r"\bcurl\b", line) for line in lines):
-        found.append(f"{name}: inline curl in a run line: the checks go through scripts/rollout-check.sh")
-    return found
-
-
-def check_serving_skip(name, doc):
-    """The skip compares what serves, and the serving revision is recorded (D7)."""
-    steps = list(steps_of(doc))
-    skip = next((s for s in steps if "running=" in s.get("run", "")), None)
-    if skip is None:
-        return [f"{name}: no step writes `running=` (the skip of an image already served)"]
-    run = skip["run"]
-    found = []
-    if "spec.template" in run:
-        found.append(f"{name}: skip: compare the image of the serving revision (the one at 100% of the traffic), not spec.template")
-    elif "revisions describe" not in run:
-        found.append(f"{name}: skip: read the image of the serving revision (gcloud run revisions describe)")
-    call = next((l for l in logical_lines(run) if "serving-revision.sh" in l), None)
-    if call is None:
-        found.append(
-            f"{name}: skip: read the serving revision with scripts/serving-revision.sh "
-            "(the 100% entry, or the latest ready revision when it follows the latest)"
-        )
-    else:
-        if "::error::" not in call:
-            found.append(f"{name}: skip: an empty serving revision must fail the job with an ::error:: (`|| {{ echo \"::error::...\"; exit 1; }}`)")
-        if "pipefail" not in run:
-            found.append(f"{name}: skip: `set -o pipefail` is needed, or the pipe to serving-revision.sh hides its failure")
-    if "serving=" not in run:
-        found.append(f"{name}: skip: record `serving=<revision>` in the step output, before the traffic moves")
-    return found
-
-
-def logical_lines(run):
-    """The command lines of a shell script: continuations joined, comments dropped."""
-    joined = re.sub(r"\\\n\s*", " ", run)
-    return [
-        line.strip()
-        for line in joined.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
-
-
-_IF = re.compile(r"^(if|elif)\s+(.*?);\s*then\b\s*(.*)$")
-_FN = re.compile(r"^([A-Za-z_]\w*)\(\)\s*\{$")
-
-
-class Arm(str):
-    """The test of one `if`/`elif`/`else` arm; two arms are never equal, even with the same text."""
-
-    def __eq__(self, other):
-        return self is other
-
-    def __ne__(self, other):
-        return self is not other
-
-    __hash__ = object.__hash__
-
-
-def shell_contexts(run):
-    """`(line, conditions)` for every command line of a shell script.
-
-    `conditions` are the tests of the `if`/`elif` arms (and `else`) enclosing
-    the line, outermost first, so a rule can say which arm a command sits in
-    instead of where it sits in the text. A function body is marked
-    `fn <name>`. One-line `if ...; then ...; fi` is handled like the long form.
-    """
-    stack, found = [], []
-
-    def emit(command, closes):
-        command = command.strip().rstrip(";").strip()
-        if command:
-            found.append((command, tuple(stack)))
-        if closes:
-            stack.pop()
-
-    for line in logical_lines(run):
-        opened = _IF.match(line)
-        if opened:
-            keyword, condition, rest = opened.groups()
-            if keyword == "if":
-                stack.append(Arm(condition))
-            else:
-                stack[-1] = Arm(condition)
-            closes = rest.endswith("; fi") or rest == "fi"
-            emit(re.sub(r";?\s*fi$", "", rest), closes)
-        elif line == "else":
-            stack[-1] = Arm("else")
-        elif line == "fi" or line == "}":
-            stack.pop()
-        elif line == "done":
-            stack.pop()
-        elif _FN.match(line):
-            stack.append(Arm("fn " + _FN.match(line).group(1)))
-        elif re.match(r"^(for|while|until)\b.*;\s*do$", line):
-            stack.append(Arm(line))
-        else:
-            emit(line, False)
-    return found
-
-
-def _exit_code_test(code):
-    """A regex for a test of an `RC`-like variable against `code`."""
-    return re.compile(r"\$\{?(?:rc|RC)\}?\"?\s*(?:==?|-eq)\s*\"?" + code + r"\b")
-
-
-REFUSAL, CHALLENGE, WORKER_500 = (_exit_code_test(code) for code in "134")
-
-
-def rollback_sites(lines):
-    """`(at, line, conditions)` of every rollback, `lines` being `shell_contexts`.
-
-    A `--to-revisions` line inside a function counts where the function is
-    called: its sites are the calls, with the callers' conditions. A function
-    nobody calls keeps its own (`fn <name>`), which no rule accepts.
-    """
-    sites = []
-    for at, (line, conditions) in enumerate(lines):
-        if "--to-revisions" not in line:
-            continue
-        function = next((str(c)[3:] for c in conditions if str(c).startswith("fn ")), None)
-        calls = [
-            (call, line, c)
-            for call, (text, c) in enumerate(lines)
-            if function and re.search(rf"(?:^|[;&|]\s*){re.escape(function)}(?:\s|;|$)", text)
-        ]
-        sites += calls or [(at, line, conditions)]
-    return sites
-
-
-_RC_EXIT = re.compile(r"^exit\s+\"?\$\{?(?:rc|RC)\}?\"?$")
-_GUARDED = re.compile(r"\|\|\s*echo\s+\"::error::rollback\b")
-
-
-def check_rollback_failure(name, lines, sites):
-    """The rollback is guarded and its arm still exits with the check's code.
-
-    Under `set -e` a failing `update-traffic` would end the step with
-    gcloud's exit code and hide the check's: the failure is reported with
-    `|| echo "::error::rollback ... failed"` and the arm then `exit "$RC"`.
-    """
-    found = []
-    exits = [c for line, c in lines if _RC_EXIT.match(line)]
-    for _, line, conditions in sites:
-        if not _GUARDED.search(line):
-            found.append(
-                f"{name}: rollback: a failing update-traffic would mask the check's exit code "
-                '(set -e): end it with `|| echo "::error::rollback to $PREVIOUS failed"`'
-            )
-        if not any(conditions[: len(c)] == c and c for c in exits):
-            found.append(
-                f"{name}: rollback: the arm must go on to `exit \"$RC\"`, the check's exit code"
-            )
-    return found
-
-
-_EXIT_5 = re.compile(r"^exit\s+5$")
-
-
-def check_rollback_outcome(name, lines):
-    """The rollback is observed, and a rollback that did not restore exits 5.
-
-    After `update-traffic --to-revisions`, inside the `rollback` function, the
-    traffic is read back (`scripts/serving-revision.sh` on `describe`, that is
-    `status.traffic`); when the previous revision does not serve, an
-    `::error::rollback did not restore <prev>` and `exit 5`. Otherwise the
-    caller's arm ends with the check's own exit code.
-    """
-    body = [(line, c) for line, c in lines if any(str(x) == "fn rollback" for x in c)]
-    update = next((at for at, (line, _) in enumerate(body) if "--to-revisions" in line), None)
-    if update is None:
-        return []
-    found = []
-    if not any("serving-revision.sh" in line for line, _ in body[update + 1 :]):
-        found.append(
-            f"{name}: rollback: after update-traffic, read status.traffic "
-            "(describe | scripts/serving-revision.sh) to confirm the previous revision serves"
-        )
-    exit_5 = [c for line, c in body if _EXIT_5.match(line)]
-    if not exit_5:
-        found.append(f"{name}: rollback: a rollback that did not restore the previous revision must `exit 5` inside the rollback function")
-    elif not any(
-        "::error::" in line and "rollback did not restore" in line and c == exit_5[0] for line, c in body
-    ):
-        found.append(f"{name}: rollback: exit 5 must follow an ::error:: `rollback did not restore <prev>` in the same arm")
-    if any(_EXIT_5.match(line) and not any(str(x) == "fn rollback" for x in c) for line, c in lines):
-        found.append(f"{name}: rollback: exit 5 belongs to the rollback function (the check's own exit code is $RC)")
-    return found
-
-
-def refused_arm(lines, refused):
-    """The command lines of the arm that follows the `--refused` call: its failure branch."""
-    base = len(lines[refused][1])
-    arm = []
-    for line, conditions in lines[refused + 1 :]:
-        if len(conditions) <= base:
-            break
-        arm.append((line, conditions))
-    return arm
-
-
-def check_refused_rollback(name, lines, sites):
-    """The bare *.run.app answering (`--refused` failing) fails the job and moves NO traffic (D13).
-
-    Both revisions boot from the same env: a rollback restores nothing. The
-    failure arm is an `::error::` naming the missing `ORIGIN_SECRET` env of the
-    service, then `exit "$RC"`; no rollback is called in it, nor after it.
-    """
-    refused = next(
-        (at for at, (line, _) in enumerate(lines) if "rollout-check.sh" in line and "--refused" in line),
-        None,
-    )
-    if refused is None:
-        return []
-    found = []
-    if any(at > refused for at, _, _ in sites):
-        found.append(f"{name}: refused: a bare origin that answers must fail the job with no rollback (both revisions boot from the same env)")
-    arm = refused_arm(lines, refused)
-    if not any("::error::" in line for line, _ in arm):
-        found.append(f"{name}: refused: a bare origin that answers must end in an ::error:: annotation")
-    elif not any("::error::" in line and "ORIGIN_SECRET" in line for line, _ in arm):
-        found.append(f"{name}: refused: the ::error:: must name the service's missing ORIGIN_SECRET env")
-    if not any(_RC_EXIT.match(line) for line, _ in arm):
-        found.append(f"{name}: refused: the arm of a bare origin that answers must go on to `exit \"$RC\"`")
-    return found
-
-
-def check_worker_500(name, lines):
-    """Exit 4, the Worker's own 500, is its own arm: an error naming the remedy, then the code."""
-    arm = [(line, c) for line, c in lines if any(WORKER_500.search(x) for x in c)]
-    if not arm:
-        return [f"{name}: rollout-check.sh --via-worker: exit 4 (the Worker answered 500) needs its own arm, with no rollback"]
-    found = []
-    if not any("::error::" in line and "origin-secret push" in line for line, _ in arm):
-        found.append(f"{name}: rollout-check.sh --via-worker: exit 4 must end in an ::error:: naming `origin-secret push`")
-    if not any(_RC_EXIT.match(line) for line, _ in arm):
-        found.append(f"{name}: rollout-check.sh --via-worker: the exit 4 arm must go on to `exit \"$RC\"`")
-    return found
-
-
-def check_rollback(name, doc):
-    """A refused public check (exit 1) puts the traffic back on the recorded revision (D11).
-
-    The rollback must sit inside the arm whose condition is the refusal exit
-    code, and in no arm of another code (a Cloudflare challenge says nothing
-    about the service): checked on the arms, not on where text appears.
-    """
-    step = next((s for s in steps_of(doc) if "--via-worker" in s.get("run", "")), None)
-    if step is None:
-        return []
-    lines = shell_contexts(step["run"])
-    sites = rollback_sites(lines)
-    if not sites:
-        return [f"{name}: rollback: a failed --via-worker check must move the traffic back (update-traffic --to-revisions)"]
-    found = []
-    found += check_rollback_failure(name, lines, sites)
-    found += check_worker_500(name, lines)
-    found += check_rollback_outcome(name, lines)
-    found += check_refused_rollback(name, lines, sites)
-    for _, _, conditions in sites:
-        if any(CHALLENGE.search(c) for c in conditions):
-            found.append(f"{name}: rollback: a Cloudflare challenge (exit 3) must not move the traffic back, only a failure")
-        elif any(WORKER_500.search(c) for c in conditions):
-            found.append(f"{name}: rollback: a Worker 500 (exit 4) must not move the traffic back: the service is not at fault, run origin-secret push")
-        elif not any(REFUSAL.search(c) for c in conditions):
-            found.append(f"{name}: rollback: the traffic goes back only in the arm whose condition is the refusal exit code (rollout-check.sh exit 1)")
-    if "outputs.serving" not in str((step.get("env") or {}).values()):
-        found.append(f"{name}: rollback: the revision to go back to is the recorded one (steps.<id>.outputs.serving)")
-    return found
-
 
 def check_siblings(name, doc):
     """Every job that runs cargo has the `siblings` action (task 007 F4):
@@ -496,6 +136,113 @@ def check_siblings(name, doc):
         if runs_cargo and not has_siblings:
             found.append(f"{name}: job `{job_name}` runs cargo without the siblings action (ui-lib and api beside the checkout)")
     return found
+
+
+
+def build_steps(doc):
+    """`(job_name, job, step)` of every docker/build-push-action step."""
+    return [
+        (job_name, job, step)
+        for job_name, job in jobs_of(doc)
+        for step in job.get("steps", [])
+        if str(step.get("uses", "")).startswith("docker/build-push-action")
+    ]
+
+
+def check_login(name, job_name, job):
+    """The job that pushes logs in to GHCR with its own token and may write packages."""
+    login = next(
+        (s for s in job.get("steps", []) if str(s.get("uses", "")).startswith("docker/login-action")),
+        None,
+    )
+    if login is None:
+        return [f"{name}: job `{job_name}` pushes without a docker/login-action step (login to ghcr.io)"]
+    with_ = login.get("with") or {}
+    found = []
+    if with_.get("registry") != "ghcr.io":
+        found.append(f"{name}: login: registry must be `ghcr.io`")
+    if with_.get("username") != "${{ github.actor }}":
+        found.append(f"{name}: login: username must be `${{{{ github.actor }}}}`")
+    if with_.get("password") != "${{ secrets.GITHUB_TOKEN }}":
+        found.append(f"{name}: login: password must be `${{{{ secrets.GITHUB_TOKEN }}}}`, given by `with:`")
+    perms = job.get("permissions")
+    if not isinstance(perms, dict):
+        found.append(f"{name}: job `{job_name}` has the login but no job-level `permissions` (contents: read, packages: write)")
+    else:
+        for scope, level in (("packages", "write"), ("contents", "read")):
+            if perms.get(scope) != level:
+                found.append(f"{name}: job `{job_name}` permissions: `{scope}: {level}` is required by the GHCR push")
+    return found
+
+
+GCP_RUN = ("gcloud", "run.app", "docker.pkg.dev", "update-traffic", "--via-worker")
+
+
+def check_no_gcp(name, doc):
+    """Nothing of Cloud Run, gcloud, the Worker or the OIDC token is left."""
+    found = []
+    for step in steps_of(doc):
+        if str(step.get("uses", "")).startswith("google-github-actions/"):
+            found.append(f"{name}: no GCP here: `{step['uses']}` (google-github-actions) is refused")
+    lines = run_lines(doc)
+    for word in GCP_RUN:
+        if any(word in line for line in lines):
+            found.append(f"{name}: no GCP here: `{word}` in a run line")
+    scopes = [doc.get("permissions")] + [job.get("permissions") for _, job in jobs_of(doc)]
+    if any(isinstance(s, dict) and "id-token" in s for s in scopes):
+        found.append(f"{name}: no GCP here: `id-token` is refused at any level (nothing needs the OIDC token)")
+    return found
+
+
+def expand_env(text, doc, job, step):
+    """`${{ env.X }}` replaced by its value, from the step, the job, then the workflow."""
+    env = {**(doc.get("env") or {}), **(job.get("env") or {}), **(step.get("env") or {})}
+    return re.sub(r"\$\{\{\s*env\.(\w+)\s*\}\}", lambda m: str(env.get(m.group(1), m.group(0))), str(text))
+
+
+SOURCE_LABEL = "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+
+
+def check_build(name, doc, job_name, job, step):
+    """The build pushes, labels its source, tags ghcr.io and the release, takes no build arg."""
+    with_ = step.get("with") or {}
+    found = []
+    if with_.get("push") is not True:
+        found.append(f"{name}: build-push: `push: true` is required (the image goes to GHCR)")
+    if SOURCE_LABEL not in str(with_.get("labels", "")):
+        found.append(f"{name}: build-push: labels must hold `{SOURCE_LABEL}` (links the package to the repository)")
+    tags = expand_env(with_.get("tags", ""), doc, job, step)
+    if "ghcr.io/" not in tags:
+        found.append(f"{name}: build-push: tags must name `ghcr.io/` (via env IMAGE or a literal)")
+    if "github.ref_name" not in tags:
+        found.append(f"{name}: build-push: tags must carry the release tag (`github.ref_name`)")
+    if "build-args" in with_:
+        found.append(f"{name}: build-push: `build-args` is refused: the image does not change with the ref")
+    found += check_exists_skip(name, job, step)
+    return found
+
+
+def check_exists_skip(name, job, step):
+    """The build is skipped by `steps.<check>.outputs.exists != 'true'`; <check> asks the registry."""
+    match = re.search(r"steps\.([\w-]+)\.outputs\.exists\s*!=\s*'true'", str(step.get("if", "")))
+    if match is None:
+        return [f"{name}: build-push: the build must be skipped by `if: steps.<check>.outputs.exists != 'true'`"]
+    check = next((s for s in job.get("steps", []) if s.get("id") == match.group(1)), None)
+    if check is None or "docker buildx imagetools inspect" not in check.get("run", ""):
+        return [f"{name}: build-push: step `{match.group(1)}` must check existence with `docker buildx imagetools inspect`"]
+    return []
+
+
+def check_summary(name, doc):
+    """A step writes the digest to the summary: what the stack pulls by."""
+    steps = [s for s in steps_of(doc) if "GITHUB_STEP_SUMMARY" in s.get("run", "")]
+    if not steps:
+        return [f"{name}: summary: a step must write the digest to $GITHUB_STEP_SUMMARY"]
+    if not any("@$DIGEST" in s["run"] for s in steps):
+        return [f"{name}: summary: the summary must give the image by digest (`$IMAGE@$DIGEST`)"]
+    if not any("imagetools inspect" in s["run"] for s in steps):
+        return [f"{name}: summary: the digest must be read with `docker buildx imagetools inspect` in the summary step"]
+    return []
 
 
 def check_deploy(name, doc):
@@ -512,8 +259,15 @@ def check_deploy(name, doc):
         if re.search(r"\bdev\b", str(value)):
             found.append(f"{name}: env `{key}` names a dev environment: there is none")
     if doc.get("concurrency", {}).get("cancel-in-progress") is not False:
-        found.append(f"{name}: concurrency: cancel-in-progress must be false (never cancel a rollout)")
-    return found + check_release(name, doc) + check_serving_skip(name, doc) + check_rollback(name, doc) + check_rollout_calls(name, doc)
+        found.append(f"{name}: concurrency: cancel-in-progress must be false (never cancel a run in progress)")
+    found += check_no_gcp(name, doc)
+    builds = build_steps(doc)
+    if not builds:
+        found.append(f"{name}: no job builds and pushes the image (docker/build-push-action)")
+    for job_name, job, step in builds:
+        found += check_login(name, job_name, job)
+        found += check_build(name, doc, job_name, job, step)
+    return found + check_summary(name, doc)
 
 
 def check(workflows, actions):
@@ -556,3 +310,4 @@ if __name__ == "__main__":
         print(line, file=sys.stderr)
     print(f"check_workflows: {len(problems)} violation(s)")
     sys.exit(1 if problems else 0)
+
