@@ -374,7 +374,7 @@ fn the_server_runs_the_smoke_test_with_its_own_throwaway_secret() {
 }
 
 /// `scripts/smoke.sh BINARY` makes its own throwaway secret, a real source
-/// and a free port: the call is exactly `RUN ./smoke.sh ./search_front`, with
+/// and a free port: the RUN simulates Cloud Run with a non-secret `K_SERVICE`, with
 /// no `ORIGIN_SECRET=` prefix (the script would overwrite it anyway).
 #[test]
 fn the_smoke_call_has_the_form_the_script_takes() {
@@ -384,8 +384,8 @@ fn the_smoke_call_has_the_form_the_script_takes() {
         .rfind(|i| i.starts_with("RUN ") && i.contains("smoke.sh"))
         .expect("a RUN runs smoke.sh");
     assert_eq!(
-        smoke, "RUN ./smoke.sh ./search_front",
-        "smoke.sh takes the binary and nothing else: no env prefix, no --port"
+        smoke, "RUN K_SERVICE=search-front-smoke ./smoke.sh ./search_front",
+        "smoke.sh receives the binary; only K_SERVICE simulates Cloud Run, no secrets or --port"
     );
 }
 

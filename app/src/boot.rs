@@ -4,8 +4,8 @@
 //! non-blank → the real source; neither set → the mock, with one log line;
 //! anything else (one alone, or a set but blank value) refuses to start,
 //! naming the variable and never its value. A deployed build (Cloud Run's
-//! `K_SERVICE`, or `LEPTOS_ENV` prod) never runs on the mock, and requires
-//! `ORIGIN_SECRET` (task 007: the origin answers Cloudflare's Worker only).
+//! `K_SERVICE`, or `LEPTOS_ENV` prod) never runs on the mock. Only Cloud Run
+//! (`K_SERVICE` present) requires `ORIGIN_SECRET`; elsewhere it is optional.
 //! The token is read from the environment once here, wrapped in `ApiToken`
 //! (whose `Debug` is redacted), and handed to the client: it is in no file
 //! and in no message.
@@ -46,7 +46,7 @@ pub enum BootError {
     Missing(&'static str),
     /// The variable is set to nothing, or to blanks.
     Empty(&'static str),
-    /// A deployed build (Cloud Run, or `LEPTOS_ENV` prod) has no origin secret.
+    /// Cloud Run (`K_SERVICE` present) has no origin secret.
     OriginRequired,
     /// A deployed build has neither search variable: it would serve the mock.
     MockInProduction,
@@ -73,7 +73,7 @@ impl fmt::Display for BootError {
             ),
             BootError::Empty(ORIGIN_VAR) => write!(
                 f,
-                "{ORIGIN_VAR} is set but empty: give it a value, or unset it for a local run"
+                "{ORIGIN_VAR} is set but empty: give it a value, or unset it outside Cloud Run"
             ),
             BootError::Empty(var) => write!(
                 f,
@@ -81,7 +81,7 @@ impl fmt::Display for BootError {
             ),
             BootError::OriginRequired => write!(
                 f,
-                "{ORIGIN_VAR} is not set: a deployed build answers only the requests that carry it"
+                "{ORIGIN_VAR} is not set: a Cloud Run service answers only the requests that carry it"
             ),
             BootError::MockInProduction => write!(
                 f,
@@ -108,11 +108,11 @@ impl Origin {
     /// Reads `ORIGIN_SECRET` through `lookup`.
     ///
     /// # Errors
-    /// [`BootError`] when the variable is blank, or unset in a deployed build.
+    /// [`BootError`] when the variable is blank, or unset on Cloud Run.
     pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<Origin, BootError> {
         match read(&lookup, ORIGIN_VAR)? {
             Some(secret) => Ok(Origin::Checked(OriginSecret::new(secret))),
-            None if deployed(&lookup) => Err(BootError::OriginRequired),
+            None if lookup("K_SERVICE").is_some() => Err(BootError::OriginRequired),
             None => Ok(Origin::Open),
         }
     }
@@ -282,6 +282,47 @@ mod tests {
     }
 
     #[test]
+    fn origin_cloud_run_matrix() {
+        for (service, secret, checked, failure) in [
+            (None, None, false, None),
+            (
+                Some("service-dev"),
+                None,
+                false,
+                Some(BootError::OriginRequired),
+            ),
+            (Some(""), None, false, Some(BootError::OriginRequired)),
+            (None, Some(SECRET), true, None),
+            (Some("service-dev"), Some(SECRET), true, None),
+            (None, Some(""), false, Some(BootError::Empty(ORIGIN_VAR))),
+            (
+                Some("service-dev"),
+                Some(" "),
+                false,
+                Some(BootError::Empty(ORIGIN_VAR)),
+            ),
+        ] {
+            let mut env = vec![("LEPTOS_ENV", "PROD")];
+            if let Some(service) = service {
+                env.push(("K_SERVICE", service));
+            }
+            if let Some(secret) = secret {
+                env.push((ORIGIN_VAR, secret));
+            }
+            let got = Origin::from_lookup(lookup(&env));
+            if let Some(expected) = failure {
+                assert_eq!(got.unwrap_err(), expected);
+            } else {
+                let origin = got.unwrap();
+                assert_eq!(matches!(origin, Origin::Checked(_)), checked);
+                if let Origin::Checked(secret) = origin {
+                    assert!(secret.matches(SECRET.as_bytes()));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_boot_cases() {
         for (name, env, expect) in table() {
             let got = Config::from_lookup(lookup(&env));
@@ -376,20 +417,16 @@ mod tests {
                 vec![("LEPTOS_ENV", "DEV")],
                 Check::Open,
             ),
-            (
-                "PROD, unset",
-                vec![("LEPTOS_ENV", "PROD")],
-                Check::Refused(BootError::OriginRequired),
-            ),
+            ("PROD, unset", vec![("LEPTOS_ENV", "PROD")], Check::Open),
             (
                 "prod in lower case, unset",
                 vec![("LEPTOS_ENV", "prod")],
-                Check::Refused(BootError::OriginRequired),
+                Check::Open,
             ),
             (
                 "production, unset",
                 vec![("LEPTOS_ENV", "Production")],
-                Check::Refused(BootError::OriginRequired),
+                Check::Open,
             ),
             (
                 "Cloud Run (K_SERVICE), unset",

@@ -309,15 +309,26 @@ fn assert_refuses(env: &[(&str, &str)], named: &str) {
 
 #[test]
 fn a_deployed_build_without_the_origin_secret_refuses_to_start() {
-    let mut prod = real_env("http://127.0.0.1:9");
-    prod.push(("LEPTOS_ENV", "PROD"));
-    assert_refuses(&prod, "ORIGIN_SECRET");
     let mut cloud_run = real_env("http://127.0.0.1:9");
     cloud_run.push(("K_SERVICE", "search-front-dev"));
     assert_refuses(&cloud_run, "ORIGIN_SECRET");
     let mut blank = real_env("http://127.0.0.1:9");
     blank.push(("ORIGIN_SECRET", "  "));
     assert_refuses(&blank, "ORIGIN_SECRET");
+}
+
+#[test]
+fn production_outside_cloud_run_starts_without_origin_secret() {
+    let port = free_port();
+    let mut env = real_env("http://127.0.0.1:9");
+    env.push(("LEPTOS_ENV", "PROD"));
+    let service = start(port, &env);
+    assert_eq!(get(port, "/").0, 200);
+    let ended = finish(service);
+    assert_eq!(
+        event(&ended.stdout, "service.started")["origin.checked"],
+        false
+    );
 }
 
 #[test]

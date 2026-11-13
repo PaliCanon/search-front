@@ -114,5 +114,5 @@ EXPOSE 8080
 # or with a wrong one is 403, no token shape came back. A
 # broken build or a missing site root fails here, not on Cloud Run. Plain
 # bash (/dev/tcp): the image has no curl and gains none.
-RUN ./smoke.sh ./search_front
+RUN K_SERVICE=search-front-smoke ./smoke.sh ./search_front
 CMD ["./search_front"]

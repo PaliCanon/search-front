@@ -60,6 +60,15 @@ symlink, same setup as `ui-lab`'s gallery) — a change spanning both
 repositories is seen at once; a plain `cargo build` here (no patched
 checkout beside it) falls back to the git branch.
 
+The origin secret is required only on Cloud Run (`K_SERVICE` present, even
+empty). Outside Cloud Run, including `LEPTOS_ENV=PROD` behind a private
+Cloudflare tunnel, unset `ORIGIN_SECRET` means no origin check. A configured
+value enables the guard on every host; a blank value always refuses startup.
+Production still requires a real search source (`SEARCH_API_URL` and
+`SEARCH_API_TOKEN`): relaxing the origin requirement never enables the mock.
+The Worker and bare-origin deployment checks remain unchanged on Cloud Run.
+Set `SEARCH_FRONT_DEPLOYMENT_ENV=production` for production log metadata on the tunnel host.
+
 ## Operational logs
 
 The SSR binary writes one JSON object per line to stdout. The hydrated site
