@@ -38,7 +38,6 @@ fn deployment(get: impl Fn(&str) -> Option<String>) -> String {
     }
     match get("K_SERVICE") {
         Some(name) if name.ends_with("-prod") => "production",
-        Some(name) if name.ends_with("-dev") => "development",
         Some(_) => "unknown",
         None => "development",
     }
@@ -215,7 +214,8 @@ mod tests {
             "K_SERVICE" => Some("search-front-dev".into()),
             _ => None,
         };
-        assert_eq!(deployment(env), "development");
+        // There is no dev environment: a `-dev` service is not recognised.
+        assert_eq!(deployment(env), "unknown");
         assert_eq!(deployment(|_| None), "development");
         assert_eq!(
             deployment(|k| (k == "K_SERVICE").then(|| "search-front-prod".into())),

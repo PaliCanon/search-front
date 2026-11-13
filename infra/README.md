@@ -3,8 +3,8 @@
 search-front's own resources, in its own tofu state
 (`gs://palicanon-app-tofu-state`, prefix `search-front`), inside the GCP
 project it shares with the site, the API and learn-pali (`palicanon-app`,
-`europe-west1`). Per environment (the map `envs` in `variables.tf`: `dev`
-first, `prod` added later, see "Order"):
+`europe-west1`). Per environment (the map `envs` in `variables.tf`: `prod` is the only one,
+there is no dev environment):
 
 | What | File | Notes |
 | --- | --- | --- |
@@ -12,9 +12,9 @@ first, `prod` added later, see "Order"):
 | Secret `search-front-api-token-<env>` | `gcp.tf` | The PaliCanon API token this site searches with. Tofu creates the secret and **never a version** (the value would sit in its state). |
 | Secret `search-front-origin-secret-<env>` | `gcp.tf` | The value the Worker sends as `x-origin-auth` and the service requires. Same rule: no version in tofu; `scripts/origin-secret` makes it. |
 | The deployer's rights | `gcp.tf` | `github-deployer` is read as a data source (the site's infra owns it), never managed here. It may **act as** the runtime account and **read the origin secret** (see "R3"). |
-| Cloud Run service `search-front-<env>` | `gcp.tf` | min 0, max 2 (dev) / 3 (prod), 1 CPU, 512Mi, CPU only while a request is served, public at the Cloud Run layer. `SEARCH_API_URL` is a value; `SEARCH_API_TOKEN` and `ORIGIN_SECRET` come from the two secrets (`latest`, read when an instance starts). Startup probe: **TCP 8080** (see "R2"). |
+| Cloud Run service `search-front-<env>` | `gcp.tf` | min 0, max 3, 1 CPU, 512Mi, CPU only while a request is served, public at the Cloud Run layer. `SEARCH_API_URL` is a value; `SEARCH_API_TOKEN` and `ORIGIN_SECRET` come from the two secrets (`latest`, read when an instance starts). Startup probe: **TCP 8080** (see "R2"). |
 | A Worker relaying to Cloud Run | `cloudflare.tf`, `worker/proxy.js` | The Worker's `ORIGIN` is the Cloud Run URL and its `PUBLIC_ORIGIN` the host's own `https://` origin (the target of a rewritten `Location`, never the request's Host; both answer 500 when missing); it adds `x-origin-auth` from its secret `ORIGIN_AUTH` and answers 500 without it. Tested with `node --test 'infra/worker/*.test.mjs'`. |
-| A Workers Custom Domain per host | `cloudflare.tf` | `search.dev.palicanon.app` (dev), `search.palicanon.app` (prod, added later). Cloudflare creates the DNS record and the certificate. |
+| A Workers Custom Domain per host | `cloudflare.tf` | `search.palicanon.app`. Cloudflare creates the DNS record and the certificate. |
 | `scripts/origin-secret` | `scripts/` | `create`, `push`, `check` the origin secret; tested with stub `gcloud`/`curl` (`bash infra/scripts/origin-secret.test.sh`). |
 
 CI owns the image: tofu ignores `image`, the revision name, the container
@@ -28,9 +28,8 @@ reads "dev" with no diff shown. The consequence of ignoring `env`: a changed
 `RUST_LOG` or `SEARCH_API_TOKEN` reference is not applied to an existing service;
 change it with `gcloud run services update` or `tofu apply -replace`. A
 `tofu apply -replace` of the service also drops `SEARCH_FRONT_ENV` and
-`SEARCH_FRONT_SHA`: the badge reads `dev` until the next deploy. The next push to
-main writes them again (`main · <sha7>`); a prod tag has no manual trigger
-(`deploy.yml` runs on a push to main or a `v*` tag), so it is restored by
+`SEARCH_FRONT_SHA`: the badge reads `dev` until the next deploy. A prod tag has
+no manual trigger (`deploy.yml` runs on a `v*` tag only), so it is restored by
 `gcloud run deploy ... --update-env-vars SEARCH_FRONT_ENV=v0.1.8,SEARCH_FRONT_SHA=`
 by hand, or by deleting and re-pushing the tag. The deploy uses `--update-env-vars` and
 never `--set-env-vars`: the set variant replaces the whole env and wipes
@@ -70,27 +69,12 @@ The value is read when an instance starts (the service) and when
 `origin-secret push` runs (the Worker); there is no overlap, so there is a
 short window in which the two disagree.
 
-- **dev**: add the new version of `search-front-origin-secret-dev`, run
-  `origin-secret push dev` (the Worker now sends the new value), then
-  **start a new revision** that reads it. `deploy.yml` skips an image that
-  already serves, so a rotation is not a CI run: force the revision with
-  `gcloud run services update search-front-dev --region europe-west1
-  --revision-suffix rot-<date>` (not yet exercised: confirm on the first
-  rotation). Until that revision serves, the service answers the Worker with
-  403: a short refusal window, accepted on dev.
 - **prod**: not rotated this way. A refusal window on the public site is not
   accepted; prod waits for a **two-value rotation** (the service accepts the
   old and the new value for a while, the Worker switches in between), a
   follow-up task. Until it exists, prod's value is set once and left.
 
-## Order: dev first, prod later
-
-`var.envs` holds **dev only** by default. The first apply therefore stands up
-`search-front-dev` and `search.dev.palicanon.app` and nothing public in prod.
-
-## Only the user, in order (dev; prod repeats 5-10 later)
-
-Nothing here has been applied yet (task 007 wrote it, did not run it).
+## Only the user, in order (the first-time setup of prod)
 
 1. Create the GitHub App in the PaliCanon organisation (permission: Contents
    read) and install it on `ui-lib`, `api` and `search-front`. Fallback: a
@@ -131,15 +115,15 @@ Nothing here has been applied yet (task 007 wrote it, did not run it).
    printed):
 
    ```sh
-   infra/scripts/origin-secret create dev
+   infra/scripts/origin-secret create prod
    ```
 
 7. In the API repository, issue the site token and store it, the value never
    typed, shown or saved elsewhere:
 
    ```sh
-   scripts/token new search-front --env dev \
-     | gcloud secrets versions add search-front-api-token-dev --project palicanon-app --data-file=-
+   scripts/token new search-front --env prod \
+     | gcloud secrets versions add search-front-api-token-prod --project palicanon-app --data-file=-
    ```
 
 8. The rest: `tofu apply` (Cloud Run on the placeholder image, the Worker,
@@ -148,26 +132,18 @@ Nothing here has been applied yet (task 007 wrote it, did not run it).
 9. Give the Worker its secret and check it:
 
    ```sh
-   infra/scripts/origin-secret push dev
-   infra/scripts/origin-secret check dev   # prints OK
+   infra/scripts/origin-secret push prod
+   infra/scripts/origin-secret check prod   # prints OK
    ```
 
-10. Push `search-front` main: `deploy.yml` rolls dev; look at
-    https://search.dev.palicanon.app.
+10. Push a `v*` tag: `deploy.yml` rolls prod; look at
+    https://search.palicanon.app.
 
 The services start with the **bootstrap image**
 (`us-docker.pkg.dev/cloudrun/container/hello`, `var.bootstrap_image`), which
 answers on 8080 and so passes the TCP startup probe; it does not check the
 origin header, so `check` says OK before the first real deploy proves
 nothing about the guard (the rollout does).
-
-## Prod
-
-After dev has deployed from CI and been checked: copy `prod.tfvars.example`
-to `prod.tfvars` (git-ignored), and repeat steps 5-9 with `prod`
-(`origin-secret create prod`, its own API token with `--env prod`,
-`tofu apply -var-file=prod.tfvars`, `origin-secret push prod`). A `v*` tag
-then deploys the real image.
 
 ## Rulings that shape this directory (task 007)
 
@@ -193,7 +169,7 @@ then deploys the real image.
   Declaring the secret in tofu (`cloudflare_workers_secret`) would put the
   value in the state: ruled out.
 - **R6, Bot Fight.** The check from a GitHub runner to
-  `search.dev.palicanon.app` after traffic can meet Cloudflare's Bot Fight
+  `search.palicanon.app` after traffic can meet Cloudflare's Bot Fight
   Mode or a managed challenge (HTTP 403 with `cf-mitigated: challenge`). The
   script tells it from the service's own 403 (empty body, no `cf-mitigated`).
   If it happens, the decision is the user's: a WAF skip rule for the runner,
@@ -201,9 +177,13 @@ then deploys the real image.
 
 ## Not done here
 
-- **Cloudflare Access on dev.** Like learn-pali's, `search.dev.palicanon.app`
-  is public until an Access application is added for it (dashboard, or tofu
-  once the token has the Access scope). The origin rule keeps the Cloud Run
-  URL closed; Access would gate the visitors.
-- The hosts (`search.dev.palicanon.app`, `search.palicanon.app`) are the
-  user's (2026-10-11).
+- The host `search.palicanon.app` is the user's (2026-10-11).
+
+## No dev environment
+
+The dev environment (service `search-front-dev`, its Worker, `search.dev.palicanon.app`,
+its secrets) was removed: `envs` holds `prod` only and `prod.tfvars.example` is
+gone (the default is prod). A local `prod.tfvars` that still lists `dev` would
+keep it: delete that file. The first `tofu apply` after the removal destroys
+the `dev` instance of each per-environment resource; read the plan first and
+check that no `prod` address appears in it.

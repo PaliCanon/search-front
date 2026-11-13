@@ -41,8 +41,8 @@ while the backend's `meaning()` is false.
 export RUSTUP_HOME=$HOME/.rustup-pc/rustup CARGO_HOME=$HOME/.rustup-pc/cargo PATH=$HOME/.rustup-pc/cargo/bin:$PATH RUSTC_WRAPPER=sccache
 # This service's own port (task 001): site 3101, live reload 4101.
 LEPTOS_SITE_ADDR=127.0.0.1:3101 LEPTOS_RELOAD_PORT=4101 \
-SEARCH_API_URL=https://api-dev.palicanon.app \
-SEARCH_API_TOKEN=$(security find-generic-password -a pali-canon-api -s pali-api-token-dev-site -w) \
+SEARCH_API_URL=https://api.palicanon.app \
+SEARCH_API_TOKEN=$(security find-generic-password -a pali-canon-api -s pali-api-token-prod-site -w) \
 cargo leptos watch
 ```
 
@@ -83,8 +83,8 @@ Every event carries `service.namespace: palicanon`, `service.name: search`,
 from `SEARCH_FRONT_ENV` / `SEARCH_FRONT_SHA`; hydration reads the same head
 metas. `SEARCH_FRONT_DEPLOYMENT_ENV` optionally sets the deployment environment
 (letters, digits, `_` or `-`, at most 64 characters). Otherwise a Cloud Run
-service ending in `-dev` / `-prod` selects `development` / `production`, and
-a local process uses `development`. The release tag is independent of it.
+service ending in `-prod` selects `production`, any other service name is
+`unknown`, and a local process uses `development`. The release tag is independent of it.
 
 Events cover startup, graceful stop, bounded startup failures, HTTP summaries,
 search results (count and duration only), typed API failures, language fallback,
@@ -158,9 +158,9 @@ Functions stay under 50 lines (`clippy.toml`).
 
 ## Deploy
 
-`main` deploys `search.dev.palicanon.app`, a `v*` tag deploys
-`search.palicanon.app` (`.github/workflows/deploy.yml`, the model is
-learn-pali's). Cloudflare (a Worker per host) is the only way in: the service
+A `v*` tag deploys `search.palicanon.app` (`.github/workflows/deploy.yml`, the
+model is learn-pali's); a push to `main` runs CI only and deploys nothing.
+There is no dev environment. Cloudflare (a Worker per host) is the only way in: the service
 answers 403 to any request without the Worker's `x-origin-auth` secret, so the
 `*.run.app` URL is closed. The image is built with **no credential**
 (`Dockerfile`): ui-lib and the API client are COPYed as sibling checkouts, and
@@ -173,7 +173,7 @@ The public-host check (`scripts/rollout-check.sh --via-worker`) also loads
 `/`, a search and `/privacy` in headless Chrome (`$CHROME`) and fails on a
 hydration panic or a page without `<html data-hydrated>` (ui-lib 063).
 
-The footer badge is the deploy's, not the image's: it says which ref was rolled out, so the image is identical across refs (`app/tests/no_build_git.rs`: the build reads no git). `deploy.yml` writes `SEARCH_FRONT_ENV` and `SEARCH_FRONT_SHA` onto the Cloud Run revision with `gcloud run deploy --update-env-vars`, the values from `scripts/release-values.sh`. A prod tag `v0.1.8` shows `v0.1.8` alone, `main` shows `main · <sha7>`, a local run `dev`, and a page whose metas are missing shows `unknown` in the browser. Every push to `main` makes a new revision, even with the same image. The rollout gate (`scripts/rollout-check.sh URL`, which needs `ROLLOUT_EXPECT_ENV` and `ROLLOUT_EXPECT_SHA`, the second may be empty for a tag) fails with exit 8 when the served metas differ from the intended release. The deploy uses `--update-env-vars` and never `--set-env-vars`, which would wipe the rest of the env. Tofu ignores the container env, so its apply comes before the first deploy that writes it (`infra/README.md`).
+The footer badge is the deploy's, not the image's: it says which ref was rolled out, so the image is identical across refs (`app/tests/no_build_git.rs`: the build reads no git). `deploy.yml` writes `SEARCH_FRONT_ENV` and `SEARCH_FRONT_SHA` onto the Cloud Run revision with `gcloud run deploy --update-env-vars`, the values from `scripts/release-values.sh`. A prod tag `v0.1.8` shows `v0.1.8` alone, a branch shows `<branch> · <sha7>`, a local run `dev`, and a page whose metas are missing shows `unknown` in the browser. Every tag makes a new revision, even with the same image. The rollout gate (`scripts/rollout-check.sh URL`, which needs `ROLLOUT_EXPECT_ENV` and `ROLLOUT_EXPECT_SHA`, the second may be empty for a tag) fails with exit 8 when the served metas differ from the intended release. The deploy uses `--update-env-vars` and never `--set-env-vars`, which would wipe the rest of the env. Tofu ignores the container env, so its apply comes before the first deploy that writes it (`infra/README.md`).
 
 ## What it never holds
 

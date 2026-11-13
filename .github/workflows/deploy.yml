@@ -1,6 +1,7 @@
 name: deploy
 
-# Push to main → dev (search-front-dev); tag v* → prod (search-front-prod).
+# A tag v* → prod (search-front-prod). A push to main deploys nothing (ci.yml
+# checks it); there is no dev environment.
 # The image is content-addressed: built only when its inputs changed (the ref
 # is not an input: the footer badge's release is NOT in the image), rolled out
 # with no traffic first as a revision that carries its release (the two env
@@ -24,11 +25,10 @@ name: deploy
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
 
 concurrency:
-  group: deploy-${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
+  group: deploy-prod
   cancel-in-progress: false
 
 permissions:
@@ -36,8 +36,8 @@ permissions:
   id-token: write
 
 env:
-  ENV: ${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
-  HOST: ${{ startsWith(github.ref, 'refs/tags/') && 'search.palicanon.app' || 'search.dev.palicanon.app' }}
+  ENV: prod
+  HOST: search.palicanon.app
   REGION: europe-west1
   PROJECT: ${{ vars.GCP_PROJECT }}
 
@@ -124,8 +124,8 @@ jobs:
       # recorded (`serving`), for the rollback of a failed public check.
       # "Already running" means that revision has this image AND this release
       # (its SEARCH_FRONT_ENV and SEARCH_FRONT_SHA, absent == empty): the
-      # image no longer changes with the ref, so every push to main, and a tag
-      # on main's image, still makes a revision (same image, new env). A
+      # image no longer changes with the ref, so every tag, even on an image
+      # already served, still makes a revision (same image, new env). A
       # revision whose JSON does not parse, that names no image, or whose env
       # is not a list falls open to a deploy and the log says why (never a
       # skip, never a dead job).

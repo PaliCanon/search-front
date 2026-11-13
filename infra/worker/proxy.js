@@ -1,4 +1,4 @@
-// search.palicanon.app / search.dev.palicanon.app → search-front on Cloud Run.
+// search.palicanon.app → search-front on Cloud Run.
 //
 // Task 024 (urgent, user 2026-10-16): the target. `new URL(pathname + search,
 // ORIGIN)` resolved the path, and a path starting `//` (or `/\`, which the URL

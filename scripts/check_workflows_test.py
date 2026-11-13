@@ -18,9 +18,9 @@ GOOD_DEPLOY = """
 name: deploy
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
 concurrency:
-  group: deploy-${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}
+  group: deploy-prod
   cancel-in-progress: false
 permissions:
   contents: read
@@ -130,10 +130,26 @@ class Rules(unittest.TestCase):
         bad = mutate("permissions:\n  contents: read\n  id-token: write\n", "")
         self.assertTrue(any("permissions" in v for v in violations(bad)))
 
-    def test_a_concurrency_group_per_env_is_required(self):
-        bad = mutate("group: deploy-${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}",
-                     "group: deploy")
+    def test_the_concurrency_group_is_the_prod_one(self):
+        bad = mutate("group: deploy-prod", "group: deploy")
         self.assertTrue(any("concurrency" in v for v in violations(bad)))
+
+    def test_a_dev_concurrency_group_is_refused(self):
+        bad = mutate("group: deploy-prod",
+                     "group: deploy-${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}")
+        self.assertTrue(any("concurrency" in v for v in violations(bad)))
+
+    def test_a_push_to_a_branch_deploys_nothing(self):
+        bad = mutate('    tags: ["v*"]', '    branches: [main]\n    tags: ["v*"]')
+        self.assertTrue(any("branches" in v for v in violations(bad)))
+
+    def test_only_a_v_tag_triggers_the_deploy(self):
+        bad = mutate('    tags: ["v*"]', '    tags: ["*"]')
+        self.assertTrue(any("v*" in v for v in violations(bad)))
+
+    def test_no_dev_environment_in_the_deploy(self):
+        bad = mutate("jobs:", "env:\n  ENV: ${{ startsWith(github.ref, 'refs/tags/') && 'prod' || 'dev' }}\njobs:")
+        self.assertTrue(any("dev" in v for v in violations(bad)))
 
     def test_a_deploy_must_not_cancel_a_running_rollout(self):
         bad = mutate("cancel-in-progress: false", "cancel-in-progress: true")

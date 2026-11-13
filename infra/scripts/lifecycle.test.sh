@@ -76,13 +76,13 @@ check "README: the deploy uses --update-env-vars and never --set-env-vars" \
 # says what restores it.
 check "README: a replace of the service loses the release env until the next deploy" \
   bash -c '[[ "$1" == *"until the next deploy"* && "$1" == *SEARCH_FRONT_ENV* ]]' _ "$para"
-# deploy.yml has no workflow_dispatch here (a push to main or a v* tag are its
-# only triggers): the README must not promise a manual run or a branch dispatch,
-# and must say what restores the release (the next push to main, or for a prod
-# tag a by-hand gcloud deploy that writes the two variables, or a re-pushed tag).
+# deploy.yml has no workflow_dispatch here (a v* tag is its only trigger): the
+# README must not promise a manual run or a branch dispatch, and must say what
+# restores the release (a by-hand gcloud deploy that writes the two variables,
+# or a re-pushed tag).
 has() { bash -c '[[ "$1" == *"$2"* ]]' _ "$1" "$2"; }
-check "README: the next push to main writes main and the sha7" \
-  has "$para" '`main · <sha7>`'
+check "README: a push to main is no trigger (a v* tag only)" \
+  bash -c '[[ "$1" == *"runs on a \`v*\` tag only"* && "$1" != *"push to main"* ]]' _ "$para"
 check "README: a prod tag is restored by a by-hand gcloud deploy with --update-env-vars" \
   has "$para" '`gcloud run deploy ... --update-env-vars SEARCH_FRONT_ENV=v0.1.8,SEARCH_FRONT_SHA=`'
 check "README: no manual workflow run and no branch dispatch is promised (there is none)" \

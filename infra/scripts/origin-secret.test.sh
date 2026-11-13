@@ -73,30 +73,26 @@ no_cf_token_in_argv() { ! grep -qF "$CFTOKEN" "$log/gcloud.argv" "$log/curl.argv
 
 # ---------------------------------------------------------------- create
 reset
-STUB_VERSIONS="" run create dev
+STUB_VERSIONS="" run create prod
 check "create: exits 0" test "$code" -eq 0
 check "create: adds exactly one version" test "$(grep -c 'versions add' "$log/gcloud.argv")" -eq 1
-check "create: on the right secret and project" grep -q 'versions add search-front-origin-secret-dev --project palicanon-app --data-file=-' "$log/gcloud.argv"
+check "create: on the right secret and project" grep -q 'versions add search-front-origin-secret-prod --project palicanon-app --data-file=-' "$log/gcloud.argv"
 check "create: the value is 64 hex characters on stdin" bash -c "grep -Eqx '[0-9a-f]{64}' '$log/gcloud.add.stdin'"
 generated=$(tr -d '\n' <"$log/gcloud.add.stdin")
 check "create: the generated value is on no argv" bash -c "! grep -qF '$generated' '$log/gcloud.argv'"
 check "create: the generated value is not on screen" bash -c "! printf '%s' '$out' | grep -qF '$generated'"
 
 reset
-STUB_VERSIONS="1" run create dev
+STUB_VERSIONS="1" run create prod
 check "create: does nothing when a version exists (exit 0)" test "$code" -eq 0
 check "create: no version added when one exists" test "$(grep -c 'versions add' "$log/gcloud.argv")" -eq 0
 
-reset
-STUB_VERSIONS="" run create prod
-check "create prod: its own secret" grep -q 'versions add search-front-origin-secret-prod ' "$log/gcloud.argv"
-
 # ---------------------------------------------------------------- push
 reset
-run push dev
+run push prod
 check "push: exits 0 on HTTP 200" test "$code" -eq 0
-check "push: reads the latest version" grep -q 'versions access latest --secret search-front-origin-secret-dev --project palicanon-app' "$log/gcloud.argv"
-check "push: PUTs to the dev Worker's secrets" grep -q 'workers/scripts/search-front-dev/secrets' "$log/curl.stdin"
+check "push: reads the latest version" grep -q 'versions access latest --secret search-front-origin-secret-prod --project palicanon-app' "$log/gcloud.argv"
+check "push: PUTs to the prod Worker's secrets" grep -q 'workers/scripts/search-front-prod/secrets' "$log/curl.stdin"
 check "push: names the binding ORIGIN_AUTH" grep -q 'ORIGIN_AUTH' "$log/curl.stdin"
 check "push: the value reaches curl on stdin" grep -qF "$VALUE" "$log/curl.stdin"
 check "push: curl is called with --config - and nothing else" bash -c "test -s '$log/curl.argv' && test \$(grep -vc -- '^--config -\$' '$log/curl.argv') -eq 0"
@@ -104,47 +100,46 @@ check "push: the value is on no argv and not on screen" no_value_anywhere
 check "push: the Cloudflare token is on no argv and not on screen" no_cf_token_in_argv
 
 reset
-STUB_PUT_CODE=403 run push dev
+STUB_PUT_CODE=403 run push prod
 check "push: exits non-zero when Cloudflare refuses" test "$code" -ne 0
 check "push: says the status, not the value" out_has 403
 check "push: refusal output holds no value" no_value_anywhere
 
 reset
-TOKEN="" run push dev
+TOKEN="" run push prod
 check "push: no Cloudflare token → non-zero" test "$code" -ne 0
 check "push: no Cloudflare token → no call at all" bash -c "! test -s '$log/curl.argv' && ! grep -q 'versions access' '$log/gcloud.argv'"
 unset TOKEN
 
 # ---------------------------------------------------------------- check
 reset
-STUB_VERSIONS=1 run check dev
+STUB_VERSIONS=1 run check prod
 check "check: OK when the version, the Worker's secret and the host agree" test "$code" -eq 0
 check "check: prints OK" out_is_ok
 check "check: prints no value" no_value_anywhere
-check "check: asks the dev host" grep -q 'https://search.dev.palicanon.app/' "$log/curl.argv"
+check "check: asks the prod host" grep -q 'https://search.palicanon.app/' "$log/curl.argv"
 
 reset
-STUB_VERSIONS="" run check dev
+STUB_VERSIONS="" run check prod
 # `check` lists versions through gcloud: no version → not OK.
 check "check: not OK without a version" refused
 reset
-STUB_VERSIONS="1" STUB_WORKER_SECRETS='{"result":[],"success":true}' run check dev
+STUB_VERSIONS="1" STUB_WORKER_SECRETS='{"result":[],"success":true}' run check prod
 check "check: not OK when the Worker has no secret" refused
 reset
-STUB_VERSIONS="1" STUB_HOST_CODE=500 run check dev
+STUB_VERSIONS="1" STUB_HOST_CODE=500 run check prod
 check "check: 500 → not OK (the Worker lost its secret)" refused 500
 reset
-STUB_VERSIONS="1" STUB_HOST_CODE=403 run check dev
+STUB_VERSIONS="1" STUB_HOST_CODE=403 run check prod
 check "check: 403 → not OK (the service refuses the Worker's value)" refused 403
-reset
-STUB_VERSIONS="1" run check prod
-check "check prod: asks the prod host" grep -q 'https://search.palicanon.app/' "$log/curl.argv"
 
 # ---------------------------------------------------------------- usage
 reset
 run create staging
 check "usage: an unknown environment is refused" test "$code" -eq 2
-run frobnicate dev
+run create dev
+check "usage: dev is not an environment any more" test "$code" -eq 2
+run frobnicate prod
 check "usage: an unknown command is refused" test "$code" -eq 2
 run
 check "usage: no argument is refused" test "$code" -eq 2

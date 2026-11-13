@@ -182,7 +182,7 @@ same() {
   err="$(cat "$work/err")"
 }
 rev() { # ENV-ARRAY-JSON -> a revision document holding it (hand-written shape of `gcloud run revisions describe --format json`)
-  printf '{"metadata":{"name":"search-front-dev-00001-aaa"},"spec":{"containers":[{"image":"registry/search-front:h-1","env":%s}]}}' "$1"
+  printf '{"metadata":{"name":"search-front-prod-00001-aaa"},"spec":{"containers":[{"image":"registry/search-front:h-1","env":%s}]}}' "$1"
 }
 NOENV='{"metadata":{"name":"r"},"spec":{"containers":[{"image":"registry/search-front:h-1"}]}}'
 same branch main "$SHA" "$NOENV"
@@ -285,7 +285,7 @@ case "$1 $2 $3" in
     serving=$(cat "$STUB/serving")
     if [ -f "$STUB/follow-latest" ]; then entry='{"percent":100,"latestRevision":true}'; else entry="{\"percent\":100,\"revisionName\":\"$serving\"}"; fi
     if [ -f "$STUB/no-traffic" ]; then entry='{"percent":50,"revisionName":"a"},{"percent":50,"revisionName":"b"}'; fi
-    printf '{"status":{"url":"https://search-front-dev-x.a.run.app","latestReadyRevisionName":"%s","latestCreatedRevisionName":"%s","traffic":[%s,{"tag":"sha-abc1234","percent":0,"revisionName":"search-front-dev-00002-bbb","url":"https://sha-abc1234---x.a.run.app"}]}}' \
+    printf '{"status":{"url":"https://search-front-prod-x.a.run.app","latestReadyRevisionName":"%s","latestCreatedRevisionName":"%s","traffic":[%s,{"tag":"sha-abc1234","percent":0,"revisionName":"search-front-prod-00002-bbb","url":"https://sha-abc1234---x.a.run.app"}]}}' \
       "$(cat "$STUB/latest-ready")" "$(cat "$STUB/latest-ready")" "$entry"
     ;;
   "run revisions describe")
@@ -324,10 +324,10 @@ reset_stub() { # image-of-the-serving-revision
   rm -rf "$stub/state"
   mkdir -p "$stub/state"
   export STUB="$stub/state"
-  printf 'search-front-dev-00001-aaa' > "$STUB/serving"
-  printf 'search-front-dev-00002-bbb' > "$STUB/latest-ready"
-  printf '%s' "$1" > "$STUB/image-search-front-dev-00001-aaa"
-  printf 'registry/search-front:h-new' > "$STUB/image-search-front-dev-00002-bbb"
+  printf 'search-front-prod-00001-aaa' > "$STUB/serving"
+  printf 'search-front-prod-00002-bbb' > "$STUB/latest-ready"
+  printf '%s' "$1" > "$STUB/image-search-front-prod-00001-aaa"
+  printf 'registry/search-front:h-new' > "$STUB/image-search-front-prod-00002-bbb"
   printf '%s' "$SECRET" > "$STUB/secret-value"
   : > "$STUB/calls"
   : > "$STUB/out"
@@ -344,7 +344,7 @@ step() {
   (
     cd "$proj" || exit 99
     env PATH="$stub/bin:$PATH" STUB="$STUB" GITHUB_OUTPUT="$STUB/out" RUNNER_TEMP="$RUNNER_TEMP" \
-      ENV=dev REGION=europe-west1 PROJECT=proj GITHUB_SHA=abc1234def5678 \
+      ENV=prod REGION=europe-west1 PROJECT=proj GITHUB_SHA=abc1234def5678 \
       GITHUB_REF_TYPE=branch GITHUB_REF_NAME=main \
       IMAGE_HASH=registry/search-front:h-new "$@" \
       bash "$work/step-$name.sh"
@@ -358,27 +358,27 @@ MAIN_ENV='[{"name":"RUST_LOG","value":"info"},{"name":"SEARCH_FRONT_ENV","value"
 echo "== deploy.yml, step 'current': the skip needs the image AND the release"
 reset_stub "registry/search-front:h-old"
 out="$(step current)"
-assert_eq "current: PREV is the serving revision" "search-front-dev-00001-aaa" "$(output serving)"
+assert_eq "current: PREV is the serving revision" "search-front-prod-00001-aaa" "$(output serving)"
 assert_eq "current: another image is running, so deploy" "false" "$(output running)"
 reset_stub "registry/search-front:h-new"
-printf '%s' "$MAIN_ENV" > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' "$MAIN_ENV" > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current)"
 assert_eq "current (same image, same release): the skip" "true" "$(output running)"
-assert_eq "current (same image, same release): serving is PREV" "search-front-dev-00001-aaa" "$(output serving)"
+assert_eq "current (same image, same release): serving is PREV" "search-front-prod-00001-aaa" "$(output serving)"
 assert_absent "current (same image, same release): nothing is deployed" "run deploy" "$(calls)"
 assert_match "current (same image, same release): says nothing to deploy" "nothing to deploy" "$out"
 reset_stub "registry/search-front:h-new"
-printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"main"},{"name":"SEARCH_FRONT_SHA","value":"1111111"}]' > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"main"},{"name":"SEARCH_FRONT_SHA","value":"1111111"}]' > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current)"
 assert_eq "current (same image, another push): a new revision is wanted" "false" "$(output running)"
-assert_eq "current (same image, another push): PREV is still the serving revision" "search-front-dev-00001-aaa" "$(output serving)"
+assert_eq "current (same image, another push): PREV is still the serving revision" "search-front-prod-00001-aaa" "$(output serving)"
 assert_match "current (same image, another push): the message says another release" "serves the image but another release .*new revision with the new env" "$out"
 assert_absent "current (same image, another push): not the skip message" "nothing to deploy" "$out"
 # The image is the intended one AND the sha7 is the intended one, but the
 # revision was rolled out for another ref: the push to main is still another
 # release, so a new revision.
 reset_stub "registry/search-front:h-new"
-printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"feat/x"},{"name":"SEARCH_FRONT_SHA","value":"abc1234"}]' > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"feat/x"},{"name":"SEARCH_FRONT_SHA","value":"abc1234"}]' > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current)"
 assert_eq "current (same image, another ref's env, same sha7): a new revision is wanted" "false" "$(output running)"
 assert_match "current (same image, another ref's env, same sha7): the message says another release" "serves the image but another release" "$out"
@@ -386,22 +386,22 @@ reset_stub "registry/search-front:h-new"
 out="$(step current)"
 assert_eq "current (same image, no env on the revision): a new revision is wanted" "false" "$(output running)"
 reset_stub "registry/search-front:h-new"
-printf '%s' '[{"name":"RUST_LOG","value":"info"}]' > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' '[{"name":"RUST_LOG","value":"info"}]' > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current)"
 assert_eq "current (same image, an env array with RUST_LOG only): a new revision is wanted" "false" "$(output running)"
 # A tag: absent sha == empty sha, so v0.1.8 already served is a skip; a new tag
 # v0.1.9 on the image main built still deploys.
 reset_stub "registry/search-front:h-new"
-printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"v0.1.8"}]' > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"v0.1.8"}]' > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v0.1.8)"
 assert_eq "current (tag, env equal, sha absent): absent == empty, so skip" "true" "$(output running)"
 reset_stub "registry/search-front:h-new"
-printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"v0.1.8"},{"name":"SEARCH_FRONT_SHA","value":""}]' > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' '[{"name":"SEARCH_FRONT_ENV","value":"v0.1.8"},{"name":"SEARCH_FRONT_SHA","value":""}]' > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v0.1.8)"
 assert_eq "current (tag, env equal, sha empty): skip" "true" "$(output running)"
 reset_stub "registry/search-front:h-new"
-printf '%s' "$MAIN_ENV" > "$STUB/env-search-front-dev-00001-aaa"
-out="$(step current GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v0.1.9 ENV=prod)"
+printf '%s' "$MAIN_ENV" > "$STUB/env-search-front-prod-00001-aaa"
+out="$(step current GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v0.1.9)"
 assert_eq "current (a new tag on main's image): a new revision" "false" "$(output running)"
 reset_stub "registry/search-front:h-new"
 out="$(step current GITHUB_REF_TYPE=branch GITHUB_REF_NAME=feat/x GITHUB_SHA=zz)"
@@ -411,22 +411,22 @@ assert_eq "current: inputs release-values.sh refuses fail the step" "1" "$rc"
 # kills the step and never skips: it falls open to a deploy and the log says
 # why.
 reset_stub "registry/search-front:h-new"
-printf 'not json' > "$STUB/raw-search-front-dev-00001-aaa"
+printf 'not json' > "$STUB/raw-search-front-prod-00001-aaa"
 out="$(step current)"
 rc=$?
 assert_eq "current (revision JSON malformed): the step still exits 0" "0" "$rc"
 assert_eq "current (revision JSON malformed): a new revision is wanted" "false" "$(output running)"
-assert_eq "current (revision JSON malformed): PREV is still the serving revision" "search-front-dev-00001-aaa" "$(output serving)"
+assert_eq "current (revision JSON malformed): PREV is still the serving revision" "search-front-prod-00001-aaa" "$(output serving)"
 assert_match "current (revision JSON malformed): the log names the reason" "could not read the serving revision's image/release \\(.*\\): deploying a new revision" "$out"
 reset_stub "registry/search-front:h-new"
-printf '%s' '{"spec":{"containers":[{}]}}' > "$STUB/raw-search-front-dev-00001-aaa"
+printf '%s' '{"spec":{"containers":[{}]}}' > "$STUB/raw-search-front-prod-00001-aaa"
 out="$(step current)"
 rc=$?
 assert_eq "current (revision names no image): the step still exits 0" "0" "$rc"
 assert_eq "current (revision names no image): a new revision is wanted" "false" "$(output running)"
 assert_match "current (revision names no image): the log names the reason" "could not read the serving revision's image/release \\(.*image.*\\): deploying a new revision" "$out"
 reset_stub "registry/search-front:h-new"
-printf '%s' '{"spec":{"containers":[]}}' > "$STUB/raw-search-front-dev-00001-aaa"
+printf '%s' '{"spec":{"containers":[]}}' > "$STUB/raw-search-front-prod-00001-aaa"
 out="$(step current)"
 rc=$?
 assert_eq "current (revision with no container): the step still exits 0" "0" "$rc"
@@ -436,17 +436,17 @@ assert_eq "current (revision with no container): a new revision is wanted" "fals
 # step deploys (fail open), says the release could not be read in its own
 # line, and never claims "another release" (that is the exit 1 case above).
 reset_stub "registry/search-front:h-new"
-printf '%s' '{"spec":{"containers":[{"image":"registry/search-front:h-new","env":"oops"}]}}' > "$STUB/raw-search-front-dev-00001-aaa"
+printf '%s' '{"spec":{"containers":[{"image":"registry/search-front:h-new","env":"oops"}]}}' > "$STUB/raw-search-front-prod-00001-aaa"
 out="$(step current)"
 rc=$?
 assert_eq "current (good image, env of the wrong type): the step still exits 0" "0" "$rc"
 assert_eq "current (good image, env of the wrong type): a new revision is wanted" "false" "$(output running)"
-assert_eq "current (good image, env of the wrong type): PREV is still the serving revision" "search-front-dev-00001-aaa" "$(output serving)"
+assert_eq "current (good image, env of the wrong type): PREV is still the serving revision" "search-front-prod-00001-aaa" "$(output serving)"
 assert_match "current (good image, env of the wrong type): its own line says the release could not be read" "could not read the serving revision's release.*: deploying a new revision" "$out"
 assert_absent "current (good image, env of the wrong type): never 'another release'" "another release" "$out"
 # The happy skip stays a skip (the pair of the case above).
 reset_stub "registry/search-front:h-new"
-printf '%s' "$MAIN_ENV" > "$STUB/env-search-front-dev-00001-aaa"
+printf '%s' "$MAIN_ENV" > "$STUB/env-search-front-prod-00001-aaa"
 out="$(step current)"
 assert_eq "current (readable, same image and release): still a skip" "true" "$(output running)"
 assert_absent "current (readable, same image and release): no could-not-read message" "could not read" "$out"
@@ -454,33 +454,33 @@ assert_absent "current (readable, same image and release): no could-not-read mes
 # revision names the latest ready one, and no revision at 100% fails the job.
 reset_stub "registry/search-front:h-old"
 touch "$STUB/follow-latest"
-printf 'registry/search-front:h-old' > "$STUB/image-search-front-dev-00002-bbb"
+printf 'registry/search-front:h-old' > "$STUB/image-search-front-prod-00002-bbb"
 out="$(step current)"
-assert_eq "current: a service that follows the latest revision names its ready one" "search-front-dev-00002-bbb" "$(output serving)"
+assert_eq "current: a service that follows the latest revision names its ready one" "search-front-prod-00002-bbb" "$(output serving)"
 reset_stub "registry/search-front:h-old"
 touch "$STUB/no-traffic"
 out="$(step current)"
 rc=$?
 assert_eq "current: no revision at 100% fails the step" "1" "$rc"
-assert_match "current: no revision at 100%: the error names the rollback" "no revision serves search-front-dev: the rollback would have nowhere to go" "$out"
+assert_match "current: no revision at 100%: the error names the rollback" "no revision serves search-front-prod: the rollback would have nowhere to go" "$out"
 
 echo "== deploy.yml, step '$ROLLOUT_STEP': the release goes onto the revision and the gate reads it"
 reset_stub "registry/search-front:h-old"
 out="$(step rollout)"
 rc=$?
 assert_eq "rollout (push to main): the step exits 0" "0" "$rc"
-assert_match "rollout (push to main): the deploy writes the release with --update-env-vars" "run deploy search-front-dev .*--image registry/search-front:h-new .*--update-env-vars SEARCH_FRONT_ENV=main,SEARCH_FRONT_SHA=abc1234" "$(calls)"
+assert_match "rollout (push to main): the deploy writes the release with --update-env-vars" "run deploy search-front-prod .*--image registry/search-front:h-new .*--update-env-vars SEARCH_FRONT_ENV=main,SEARCH_FRONT_SHA=abc1234" "$(calls)"
 assert_match "rollout (push to main): the deploy has no traffic and the sha tag" "--no-traffic --tag sha-abc1234" "$(calls)"
 assert_match "rollout (push to main): the gate is given the URL and the header file" "rollout-check https://sha-abc1234---x.a.run.app $RUNNER_TEMP/origin-header" "$(calls)"
 assert_match "rollout (push to main): the gate expects env main and sha abc1234" "rollout-check-expect env=main sha=abc1234" "$(calls)"
 assert_match "rollout (push to main): the header file is 0600" "header-file -rw-------" "$(calls)"
-assert_match "rollout (push to main): then the traffic moves to the latest" "update-traffic search-front-dev .*--to-latest" "$(calls)"
+assert_match "rollout (push to main): then the traffic moves to the latest" "update-traffic search-front-prod .*--to-latest" "$(calls)"
 # The only line that may hold the value is the mask command itself.
 assert_absent "rollout (push to main): the origin secret is not logged" "$SECRET" "$(calls)$(grep -v '^::add-mask::' <<<"$out")"
 assert_match "rollout (push to main): the secret is masked before any later line" "^::add-mask::" "$out"
 assert_absent "rollout (push to main): the set variant of the flag is never called" "--set-env-vars" "$(calls)"
 reset_stub "registry/search-front:h-old"
-out="$(step rollout GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v0.1.8 ENV=prod)"
+out="$(step rollout GITHUB_REF_TYPE=tag GITHUB_REF_NAME=v0.1.8)"
 rc=$?
 assert_eq "rollout (tag v0.1.8): the step exits 0" "0" "$rc"
 assert_match "rollout (tag v0.1.8): the deploy writes the tag and an empty sha" "run deploy search-front-prod .*--update-env-vars SEARCH_FRONT_ENV=v0.1.8,SEARCH_FRONT_SHA=( |$)" "$(calls)"
@@ -513,7 +513,7 @@ echo "== ci.yml: every test this repository holds for the release runs in CI"
 # skipped by an `if:`, or placed in a job that never runs.
 ci_runs() { # -> the run: lines of ci.yml
   python3 -c '
-import sys, yaml
+import re, sys, yaml
 for job in yaml.safe_load(open(sys.argv[1]))["jobs"].values():
     for step in job.get("steps", []):
         if "run" in step:
@@ -523,13 +523,13 @@ for job in yaml.safe_load(open(sys.argv[1]))["jobs"].values():
 ci_runs > "$work/ci-runs"
 assert_file_has "ci.yml runs release-values.test.sh" "$work/ci-runs" '^bash scripts/release-values\.test\.sh$'
 assert_file_has "ci.yml runs lifecycle.test.sh (written by lane C)" "$work/ci-runs" '^bash infra/scripts/lifecycle\.test\.sh$'
-assert_file_has "ci.yml runs the release_document browser test with chromedriver" "$work/ci-runs" 'CHROMEDRIVER="\$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document$'
+assert_file_has "ci.yml runs the release_document browser test with chromedriver" "$work/ci-runs" 'CHROMEDRIVER="\$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document( --test [a-z_]+)*$'
 # The browser test needs the wasm-bindgen runner: its step carries the env.
 assert_eq "the release_document step sets the wasm-bindgen runner" "wasm-bindgen-test-runner" "$(python3 - "$root/.github/workflows/ci.yml" <<'PY'
-import sys, yaml
+import re, sys, yaml
 for job in yaml.safe_load(open(sys.argv[1]))["jobs"].values():
     for step in job.get("steps", []):
-        if step.get("run", "").endswith("--test release_document"):
+        if re.search(r"--test release_document( --test \w+)*$", step.get("run", "")):
             print((step.get("env") or {}).get("CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER", ""))
 PY
 )"

@@ -20,16 +20,11 @@ variable "cloudflare_account_id" {
   default = "c0690c72f1b7c85737052c3a9ebac154"
 }
 
-# One entry per environment. The dev host is search.dev.palicanon.app: two
-# levels deep, served by a Workers Custom Domain which
-# issues the exact host's certificate (cloudflare.tf), as
-# learn-pali's. `api_url` is the PaliCanon API this environment searches
-# through (`SEARCH_API_URL`). Changing a host is an edit here and a tofu apply.
-#
-# The default holds `dev` ONLY: the first apply must not stand up a public
-# prod host before dev has deployed and been checked from CI. Prod is added
-# afterwards, with `-var-file` or by uncommenting the block below (README,
-# "Order"), then a second apply, with its own two secrets.
+# One entry per environment: prod is the only one (the dev environment was
+# removed). The host is served by a Workers Custom Domain which issues the
+# exact host's certificate (cloudflare.tf). `api_url` is the PaliCanon API this
+# environment searches through (`SEARCH_API_URL`). Changing a host is an edit
+# here and a tofu apply.
 variable "envs" {
   type = map(object({
     host          = string
@@ -37,15 +32,10 @@ variable "envs" {
     api_url       = string
   }))
   default = {
-    dev = {
-      host          = "search.dev.palicanon.app"
-      max_instances = 2
-      api_url       = "https://api-dev.palicanon.app"
+    prod = {
+      host          = "search.palicanon.app"
+      max_instances = 3
+      api_url       = "https://api.palicanon.app"
     }
-    # prod = {
-    #   host          = "search.palicanon.app"
-    #   max_instances = 3
-    #   api_url       = "https://api.palicanon.app"
-    # }
   }
 }
