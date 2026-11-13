@@ -268,19 +268,12 @@ fn ResultsArea(
             aria-busy=move || pending_view(None, pending.get()).aria_busy()
             class=move || pending_view(None, pending.get()).class()
         >
-        <Transition
-            fallback=|| view! { <div></div> }
-            set_pending=set_pending
-        >
-            {move || {
-                let held = outcome.get();
-                area_view(
-                    &pending_view(held.as_ref(), pending.get()),
-                    &key.get(),
-                    &base.get(),
-                )
-            }}
-        </Transition>
+            <Transition fallback=|| view! { <div></div> } set_pending=set_pending>
+                {move || {
+                    let held = outcome.get();
+                    area_view(&pending_view(held.as_ref(), pending.get()), &key.get(), &base.get())
+                }}
+            </Transition>
         </div>
     }
 }

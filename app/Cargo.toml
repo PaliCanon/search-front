@@ -22,13 +22,12 @@ leptos_router.workspace = true
 leptos_i18n = { version = "0.6.2", default-features = false }
 leptos_axum = { workspace = true, optional = true }
 axum = { version = "0.8", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net"], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "net", "signal"], optional = true }
 # The PaliCanon API's typed client (server side only: it refuses to build for
 # wasm32). Built from ../api (the workspace's [patch]) until it is published.
 palicanon-api-client = { git = "ssh://git@github.com/PaliCanon/api.git", branch = "main", optional = true }
 # The origin guard compares the Worker's secret in constant time (`origin.rs`).
 subtle = { version = "2", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 # The in-place submit reads the submitted form (`FormData`), csr only
 # (`fragment::submit`); already in the tree through leptos.
@@ -37,6 +36,9 @@ web-sys = { version = "0.3", optional = true, features = ["FormData", "HtmlFormE
 # in the tree through leptos.
 js-sys = { version = "0.3", optional = true }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "json", "registry"], optional = true }
 # Diacritic-insensitive snippet highlighting (`satipatthana` lights up
 # `satipaṭṭhāna`): NFD-decomposes a char so a combining mark can be
 # stripped before folding. Pure Rust, no_std-friendly, builds for wasm32.
@@ -50,6 +52,7 @@ leptos_i18n_codegen = "=0.6.2"
 serde_json = "1"
 
 [dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
 serde_json = "1"
 # The SSR render tests drive the page's futures (task 005, slice 6).
 futures = "0.3"
@@ -83,18 +86,18 @@ web-sys = { version = "0.3", features = [
 site = []
 # Private: the code that needs a browser (the focus shortcut, the browser
 # clock), shared by the two client modes. Never gate it on `hydrate`.
-browser = ["dep:wasm-bindgen", "dep:js-sys"]
+browser = ["dep:wasm-bindgen", "dep:js-sys", "dep:web-sys", "web-sys/console", "web-sys/Performance", "dep:tracing-subscriber"]
 hydrate = [
   "leptos/hydrate",
   "palicanon-ui-lib/hydrate",
   "site",
   "browser",
-  "dep:console_error_panic_hook",
 ]
 # The PaliCanon app: the browser builds the page from an empty document, no
 # server (the fragment, `crate::fragment`, mounted by the app's own host).
 csr = ["leptos/csr", "palicanon-ui-lib/csr", "browser", "dep:web-sys"]
 ssr = [
+  "dep:tracing-subscriber",
   "site",
   "dep:axum",
   "dep:tokio",

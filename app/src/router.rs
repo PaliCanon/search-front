@@ -44,6 +44,7 @@ pub fn router(options: LeptosOptions, source: Arc<Source>, origin: Origin) -> ax
         .fallback(file_and_error_handler_with_context(context, shell))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .with_state(options)
+        .layer(axum::middleware::from_fn(crate::telemetry::server::request))
         .layer(axum::middleware::from_fn_with_state(
             Arc::new(origin),
             guard,

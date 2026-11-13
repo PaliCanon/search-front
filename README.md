@@ -49,7 +49,7 @@ cargo leptos watch
 The real search needs both variables: the API's base URL and the site's
 token, read from the macOS keychain in the same command (it is never
 printed). Without the two (`cargo leptos watch` alone) the service runs on
-the mock and says `search: mock` at boot. One of them alone, or one that
+the mock and emits `service.started` with `source.mock: true` at boot. One of them alone, or one that
 is blank, stops the service at boot with an error naming the variable
 (never its value). **No `.env` file, ever**: the token lives in the
 keychain, and in the process's environment for as long as it runs.
@@ -59,6 +59,39 @@ It depends on `palicanon-ui-lib` by git (`tag = "v0.3.0"`), with a local
 symlink, same setup as `ui-lab`'s gallery) — a change spanning both
 repositories is seen at once; a plain `cargo build` here (no patched
 checkout beside it) falls back to the git branch.
+
+## Operational logs
+
+The SSR binary writes one JSON object per line to stdout. The hydrated site
+writes JSON to the local browser console. Both work without a collector or
+backend; no log is sent over the network. These are structured application
+logs with OpenTelemetry resource names, not an OTLP exporter.
+
+Every event carries `service.namespace: palicanon`, `service.name: search`,
+`service.version` (the deployed tag/ref used by the footer badge),
+`service.commit`, `deployment.environment.name`, `runtime` (`server` or
+`browser`), `timestamp`, `severity` and `event.name`. Release values come
+from `SEARCH_FRONT_ENV` / `SEARCH_FRONT_SHA`; hydration reads the same head
+metas. `SEARCH_FRONT_DEPLOYMENT_ENV` optionally sets the deployment environment
+(letters, digits, `_` or `-`, at most 64 characters). Otherwise a Cloud Run
+service ending in `-dev` / `-prod` selects `development` / `production`, and
+a local process uses `development`. The release tag is independent of it.
+
+Events cover startup, graceful stop, bounded startup failures, HTTP summaries,
+search results (count and duration only), typed API failures, language fallback,
+origin refusals, server-function failures and panics. HTTP summaries use route
+templates and a generated process-local request ID; duration ends when response
+headers are ready. Origin refusals are sampled at most once per minute. HEAD
+and unmatched routes, API successes and language fallback are DEBUG. Other
+application events default to INFO or higher. `SEARCH_FRONT_LOG_LEVEL=DEBUG`
+enables server detail; dependencies remain filtered out. The browser stays at
+INFO. Queries, URLs, headers, tokens, upstream codes/messages, result text and
+panic payloads are never included.
+
+The CSR fragment leaves subscriber ownership to its host. A host may opt into
+`search_front::telemetry::init_browser()` or supply its own subscriber. The
+initializer preserves an existing subscriber and creates no persistent browser
+identifier. Without release/environment metas, its identity is `unknown`.
 
 ## Checks
 
@@ -86,7 +119,7 @@ CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner CHROMEDRIVER
   cargo test -p search_front --no-default-features --features csr \
   --target wasm32-unknown-unknown --test csr --test csr_mount
 # the release document tests (same runner and chromedriver):
-cargo test -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document
+cargo test -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document --test telemetry_browser
 # the test binary's wasm-bindgen output holds the fragment and nothing of the server:
 wasm-bindgen --target web --out-dir pkg-csr <target/wasm32-unknown-unknown/debug/deps/csr-*.wasm>
 BUNDLE_MODE=csr PKG_DIR=pkg-csr scripts/check-wasm-no-token.sh

@@ -30,7 +30,7 @@
 # through the Worker only (Chrome cannot add the origin header), `hydrate`:
 # headless Chrome loads /, /?q=satipatthana and /privacy (ui-lib 063: the
 # page hydrates past the nodes Cloudflare injects); a page passes when
-# Chrome's console (stderr) has no `panicked at` nor `RuntimeError` and its
+# Chrome's console (stderr) has no `runtime.panic`, `panicked at` or `RuntimeError`, and its
 # dumped DOM has `<html data-hydrated>` (set by palicanon_ui_lib::hydrate).
 # Chrome is $CHROME, else google-chrome, google-chrome-stable, chromium,
 # chromium-browser or macOS's Google Chrome; each page gets
@@ -359,7 +359,7 @@ hydrate() {
     --enable-logging=stderr --virtual-time-budget=15000 --dump-dom "$url$path" \
     > "$work/dom-$n" 2> "$work/console-$n" || rc=$?
   local panic
-  panic="$(grep -aE -m 1 'panicked at|RuntimeError' "$work/console-$n" | cut -c 1-300)"
+  panic="$(grep -aE -m 1 'runtime[.]panic|panicked at|RuntimeError' "$work/console-$n" | cut -c 1-300)"
   [ -z "$panic" ] || fail hydrate "$path: the page panicked in the browser: $panic"
   if grep -aEq '_cf_chl_opt|<title>Just a moment' "$work/dom-$n"; then
     echo "rollout-check: challenge: Cloudflare challenged Chrome on $path; hydration was not checked (never a pass: run it by hand)" >&2

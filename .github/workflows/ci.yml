@@ -133,7 +133,7 @@ jobs:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
       # tests/release_document.rs (task 028): the release read from the head
       # metas in a real browser, the way hydrate() reads it.
-      - run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document
+      - run: CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver" cargo test --locked -p search_front --no-default-features --features csr --target wasm32-unknown-unknown --test release_document --test telemetry_browser
         env:
           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
       # Each csr test bundle's wasm-bindgen output: no token, no API client,

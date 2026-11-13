@@ -782,7 +782,11 @@ fn rollout_check_names_the_check_that_failed() {
         let out = run(
             &check_script(),
             &[&fake.url()],
-            &with_release(&[("ORIGIN_SECRET", SECRET)]),
+            &with_release(&[
+                ("ORIGIN_SECRET", SECRET),
+                ("ROLLOUT_SEARCH_TRIES", "2"),
+                ("ROLLOUT_SEARCH_WAIT", "0"),
+            ]),
         );
         assert_fails_naming(&out, check, case);
     }
@@ -869,27 +873,31 @@ fn rollout_check_fails_after_retries_if_engine_never_starts() {
     assert!(text.contains("did not start"), "mentions timeout: {text}");
 }
 
-/// The search page has neither results nor the starting marker: the check
-/// should fail immediately without retrying.
+/// A 200 page with neither results nor the starting marker is treated as
+/// cold, then fails when bounded retries are exhausted.
 #[test]
-fn rollout_check_fails_immediately_on_bad_page_without_starting_marker() {
+fn rollout_check_fails_after_retries_on_bad_page_without_starting_marker() {
     let fake = Fake::start(answering(SEARCH, 200, &page("<p>Something weird</p>")));
     let out = run(
         &check_script(),
         &[&fake.url()],
-        &with_release(&[("ORIGIN_SECRET", SECRET)]),
+        &with_release(&[
+            ("ORIGIN_SECRET", SECRET),
+            ("ROLLOUT_SEARCH_TRIES", "2"),
+            ("ROLLOUT_SEARCH_WAIT", "0"),
+        ]),
     );
     let text = printed(&out);
     assert_eq!(out.status.code(), Some(1), "fails: {text}");
     assert!(text.contains("search"), "names the search check: {text}");
-    // Should see "has no result list" message, not "did not start".
+    // A cold page without results eventually fails with its own reason.
     assert!(
         text.contains("has no result list"),
-        "immediate failure: {text}"
+        "missing results: {text}"
     );
     assert!(
         !text.contains("the engine is starting"),
-        "no retry messages: {text}"
+        "not the starting marker: {text}"
     );
 }
 
@@ -1438,6 +1446,7 @@ fi
 case "$mode" in
   ok) printf '%s\n' '{HYDRATED_DOM}' ;;
   panic) printf '%s\n' '{PANIC_LINE}' >&2; printf '%s\n' '{HYDRATED_DOM}' ;;
+  structured) printf '%s\n' '{{"event.name":"runtime.panic","severity":"ERROR"}}' >&2; printf '%s\n' '{HYDRATED_DOM}' ;;
   runtime) printf '%s\n' 'Uncaught RuntimeError: unreachable' >&2; printf '%s\n' '{BARE_DOM}' ;;
   bare) printf '%s\n' '{BARE_DOM}' ;;
   challenge) printf '%s\n' '{CHALLENGE_DOM}' ;;
@@ -1526,7 +1535,7 @@ fn rollout_check_hydrate_passes_when_every_page_hydrates() {
 #[test]
 fn rollout_check_hydrate_fails_on_a_panic_in_the_browser() {
     let fake = Fake::start(through_the_worker);
-    for mode in ["panic", "runtime"] {
+    for mode in ["panic", "structured", "runtime"] {
         let chrome = FakeChrome::new(mode);
         let out = run(
             &check_script(),

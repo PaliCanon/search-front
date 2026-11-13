@@ -81,9 +81,12 @@ async fn search_passages_with(
     let Some(request) = Request::from_args(q, lang, mode, collection) else {
         return SearchOutcome::Hits(SearchResponse::empty(q.trim()));
     };
-    source
+    let started = std::time::Instant::now();
+    let outcome = source
         .search(&request.q, &request.lang, request.mode, request.collection)
-        .await
+        .await;
+    crate::telemetry::search_outcome(&outcome, started.elapsed().as_secs_f64() * 1000.0);
+    outcome
 }
 
 /// The log line of a missing source: a boot bug, distinct from an upstream
@@ -96,8 +99,8 @@ pub(crate) const MISSING_SOURCE_LOG: &str = "search: source missing";
 /// a token nor a query: it reaches the browser as the 500's body.
 #[cfg(feature = "ssr")]
 fn context_source() -> Result<std::sync::Arc<Source>, ServerFnError> {
-    source_or_log(use_context::<std::sync::Arc<Source>>(), |line| {
-        eprintln!("{line}");
+    source_or_log(use_context::<std::sync::Arc<Source>>(), |_| {
+        crate::telemetry::event!(ERROR, "search.source.missing");
     })
 }
 

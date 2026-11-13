@@ -35,6 +35,7 @@ pub mod release;
 #[cfg(feature = "ssr")]
 pub mod router;
 pub mod search;
+pub mod telemetry;
 pub mod ui;
 
 /// Browser entry point: hydrate the server-rendered page from its root
@@ -49,7 +50,8 @@ pub mod ui;
 pub fn hydrate() {
     use leptos::prelude::*;
 
-    console_error_panic_hook::set_once();
+    #[cfg(target_arch = "wasm32")]
+    telemetry::init_browser();
     palicanon_ui_lib::hydrate(|| {
         provide_context(release::ReleaseInfo::from_document());
         view! { <app::App /> }

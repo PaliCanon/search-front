@@ -39,14 +39,25 @@ impl Default for SiteBackend {
 impl SearchBackend for SiteBackend {
     fn search(&self, query: SearchQuery) -> SearchFuture {
         Box::pin(async move {
-            search_passages(
+            #[cfg(feature = "browser")]
+            let started = crate::telemetry::now_ms();
+            let outcome = search_passages(
                 query.q,
                 query.lang.to_owned(),
                 query.mode.code().to_owned(),
                 query.collection.code().to_owned(),
             )
             .await
-            .unwrap_or(SearchOutcome::Failed)
+            .unwrap_or_else(|_| {
+                crate::telemetry::event!(WARN, "search.transport.failed", error.type = "server_function");
+                SearchOutcome::Failed
+            });
+            #[cfg(feature = "browser")]
+            crate::telemetry::search_outcome(
+                &outcome,
+                (crate::telemetry::now_ms() - started).max(0.0),
+            );
+            outcome
         })
     }
 

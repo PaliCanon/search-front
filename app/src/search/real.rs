@@ -6,7 +6,7 @@
 //! else is `Failed`. A language the API has no index for (`404
 //! lang_unavailable`) is searched again once in English, and the answer says
 //! so (`fell_back`). The token lives in [`ApiToken`], whose `Debug` is
-//! redacted; a failure is logged as a status, an API code and a duration,
+//! redacted; a failure is logged as a status, a typed category and a duration,
 //! never the query, the API's message or the token.
 
 use std::fmt;
@@ -76,35 +76,6 @@ pub(crate) enum Fault<'a> {
     Timeout,
 }
 
-/// The log line of a failed call: its status, the API's error code and the
-/// duration. Never the query, never the API's message, never the token — and
-/// never the client's own text for a failed request, which names the URL.
-pub(crate) fn log_line(fault: &Fault<'_>, elapsed: Duration) -> String {
-    let what = match fault {
-        Fault::Timeout => "timeout".to_owned(),
-        Fault::Client(ClientError::Unauthorized(_)) => {
-            "status 401 (the token was refused)".to_owned()
-        }
-        Fault::Client(ClientError::RateLimited { .. }) => "status 429".to_owned(),
-        Fault::Client(ClientError::ColdEngine { .. }) => "status 503 engine_starting".to_owned(),
-        Fault::Client(ClientError::Other { status, code, .. }) => {
-            format!("status {status} {}", clean_code(code))
-        }
-        Fault::Client(ClientError::Request(_)) => {
-            "request failed (no answer or not JSON)".to_owned()
-        }
-    };
-    format!("search: api {what} after {} ms", elapsed.as_millis())
-}
-
-/// An API error code made safe for a log line: `[a-z0-9_]`, at most 40.
-fn clean_code(code: &str) -> String {
-    code.chars()
-        .filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_')
-        .take(40)
-        .collect()
-}
-
 /// Why one call did not give hits.
 enum Failure {
     /// A state the page shows.
@@ -155,13 +126,21 @@ impl RealSource {
         let started = Instant::now();
         let answer = tokio::time::timeout(self.timeout, self.client.search(&wire)).await;
         match answer {
-            Ok(Ok(response)) => Ok(response),
+            Ok(Ok(response)) => {
+                crate::telemetry::event!(
+                    DEBUG,
+                    "api.request.completed",
+                    outcome = "ok",
+                    duration_ms = started.elapsed().as_secs_f64() * 1000.0
+                );
+                Ok(response)
+            }
             Ok(Err(err)) => {
-                eprintln!("{}", log_line(&Fault::Client(&err), started.elapsed()));
+                log_failure(&Fault::Client(&err), started.elapsed());
                 Err(classify(err))
             }
             Err(_elapsed) => {
-                eprintln!("{}", log_line(&Fault::Timeout, started.elapsed()));
+                log_failure(&Fault::Timeout, started.elapsed());
                 Err(Failure::Typed(SearchFailure::Cold {
                     retry_after: Some(TIMEOUT_RETRY_AFTER),
                 }))
@@ -181,6 +160,11 @@ impl SearchSource for RealSource {
         let first = self.once(query, lang, mode, collection).await;
         let (result, fell_back) = match first {
             Err(Failure::LangUnavailable) if lang != "en" => {
+                crate::telemetry::event!(
+                    DEBUG,
+                    "search.language.fallback",
+                    reason = "index_unavailable"
+                );
                 (self.once(query, "en", mode, collection).await, true)
             }
             other => (other, false),
@@ -189,6 +173,35 @@ impl SearchSource for RealSource {
             Ok(wire) => SearchOutcome::Hits(adapt::response(wire, fell_back)),
             Err(Failure::Typed(failure)) => failure.into(),
             Err(Failure::LangUnavailable) => SearchFailure::Failed.into(),
+        }
+    }
+}
+
+/// Only typed categories and numeric statuses cross the logging boundary.
+fn log_failure(fault: &Fault<'_>, elapsed: Duration) {
+    let (kind, status) = match fault {
+        Fault::Timeout => ("timeout", None),
+        Fault::Client(ClientError::Unauthorized(_)) => ("authentication", Some(401)),
+        Fault::Client(ClientError::RateLimited { .. }) => ("rate_limited", Some(429)),
+        Fault::Client(ClientError::ColdEngine { .. }) => ("engine_starting", Some(503)),
+        Fault::Client(ClientError::Other { status, code, .. })
+            if *status == 404 && code == "lang_unavailable" =>
+        {
+            ("language_unavailable", Some(*status))
+        }
+        Fault::Client(ClientError::Other { status, .. }) => ("upstream_status", Some(*status)),
+        Fault::Client(ClientError::Request(_)) => ("request", None),
+    };
+    let duration = elapsed.as_secs_f64() * 1000.0;
+    match kind {
+        "authentication" => {
+            crate::telemetry::event!(ERROR, "api.failed", error.type = kind, http.response.status_code = status, duration_ms = duration);
+        }
+        "language_unavailable" => {
+            crate::telemetry::event!(DEBUG, "api.failed", error.type = kind, http.response.status_code = status, duration_ms = duration);
+        }
+        _ => {
+            crate::telemetry::event!(WARN, "api.failed", error.type = kind, http.response.status_code = status, duration_ms = duration);
         }
     }
 }
@@ -474,18 +487,24 @@ mod tests {
         assert!(!shown.contains(CANARY_TOKEN), "leaked: {shown}");
     }
 
-    const SOME_MS: Duration = Duration::from_millis(42);
+    fn failure_log(fault: &Fault<'_>) -> serde_json::Value {
+        let logs =
+            crate::telemetry::tests::capture(|| log_failure(fault, Duration::from_millis(42)));
+        assert_eq!(logs.len(), 1);
+        logs.into_iter().next().unwrap()
+    }
 
     #[test]
-    fn the_log_line_of_an_api_error_has_its_status_and_code_but_not_its_message() {
+    fn json_errors_keep_status_but_drop_raw_codes_and_messages() {
         let err = ClientError::Other {
             status: 500,
-            code: "internal".to_owned(),
+            code: CANARY_TOKEN.to_owned(),
             message: format!("MESSAGE q={CANARY_QUERY} token={CANARY_TOKEN}"),
         };
-        let line = log_line(&Fault::Client(&err), SOME_MS);
+        let log = failure_log(&Fault::Client(&err));
+        let line = log.to_string();
         assert!(line.contains("500"), "the status: {line}");
-        assert!(line.contains("internal"), "the API's code: {line}");
+        assert_eq!(log["error.type"], "upstream_status");
         assert!(line.contains("42"), "the duration in ms: {line}");
         for secret in ["MESSAGE", CANARY_QUERY, CANARY_TOKEN] {
             assert!(!line.contains(secret), "{secret} leaked: {line}");
@@ -495,7 +514,8 @@ mod tests {
     #[test]
     fn the_log_line_of_a_refused_token_names_the_status_not_the_message() {
         let err = ClientError::Unauthorized(format!("unknown token {CANARY_TOKEN}"));
-        let line = log_line(&Fault::Client(&err), SOME_MS);
+        let log = failure_log(&Fault::Client(&err));
+        let line = log.to_string();
         assert!(line.contains("401"), "the status: {line}");
         assert!(!line.contains(CANARY_TOKEN), "token leaked: {line}");
     }
@@ -504,13 +524,19 @@ mod tests {
     fn the_log_line_of_the_typed_refusals_has_their_status() {
         let cold = ClientError::ColdEngine { retry_after: None };
         let limited = ClientError::RateLimited { retry_after: None };
-        assert!(log_line(&Fault::Client(&cold), SOME_MS).contains("503"));
-        assert!(log_line(&Fault::Client(&limited), SOME_MS).contains("429"));
+        assert_eq!(
+            failure_log(&Fault::Client(&cold))["http.response.status_code"],
+            503
+        );
+        assert_eq!(
+            failure_log(&Fault::Client(&limited))["http.response.status_code"],
+            429
+        );
     }
 
     #[test]
     fn the_log_line_of_a_timeout_says_so() {
-        let line = log_line(&Fault::Timeout, SOME_MS);
+        let line = failure_log(&Fault::Timeout).to_string();
         assert!(line.contains("timeout"), "{line}");
         assert!(line.contains("42"), "the duration in ms: {line}");
     }
@@ -523,7 +549,8 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, ClientError::Request(_)), "got {err:?}");
-        let line = log_line(&Fault::Client(&err), SOME_MS);
+        let log = failure_log(&Fault::Client(&err));
+        let line = log.to_string();
         assert!(line.contains("request"), "it says what failed: {line}");
         for secret in [CANARY_QUERY, CANARY_TOKEN] {
             assert!(!line.contains(secret), "{secret} leaked: {line}");

@@ -58,6 +58,8 @@ fn command(port: u16, search_env: &[(&str, &str)]) -> Command {
         .env_remove("K_SERVICE")
         .env_remove("SEARCH_FRONT_ENV")
         .env_remove("SEARCH_FRONT_SHA")
+        .env_remove("SEARCH_FRONT_LOG_LEVEL")
+        .env_remove("SEARCH_FRONT_DEPLOYMENT_ENV")
         .env("LEPTOS_OUTPUT_NAME", "search-front")
         .env("LEPTOS_SITE_ADDR", format!("127.0.0.1:{port}"))
         .stdin(Stdio::null())
@@ -198,10 +200,12 @@ fn a_half_configured_environment_refuses_to_start_and_names_the_variable() {
         let (out, ended_by_itself) = run_to_exit(command(free_port(), &env));
         assert!(ended_by_itself, "{env:?} must stop at boot, not listen");
         assert!(!out.status.success(), "{env:?} must exit non-zero");
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(stderr.contains(named), "stderr names {named}: {stderr}");
-        let everything = format!("{stderr}{}", String::from_utf8_lossy(&out.stdout));
-        assert!(!everything.contains(CANARY), "token leaked: {everything}");
+        assert_eq!(out.stderr, b"");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let failure = event(&stdout, "service.failed");
+        assert_eq!(failure["stage"], named);
+        assert_eq!(failure["severity"], "ERROR");
+        assert!(!stdout.contains(CANARY), "token leaked: {stdout}");
     }
 }
 
@@ -212,37 +216,32 @@ fn the_mock_boots_with_no_variables_and_says_so() {
     let (status, _) = get(port, "/?q=mindfulness");
     assert_eq!(status, 200, "the mock answers");
     let ended = finish(service);
-    assert_eq!(
-        ended.stdout.matches("search: mock").count(),
-        1,
-        "{}",
-        ended.stdout
-    );
+    assert_eq!(ended.stderr, "");
+    assert_eq!(event(&ended.stdout, "service.started")["source.mock"], true);
 }
 
 #[test]
 fn the_boot_logs_its_release_once() {
-    let cases: [(&[(&str, &str)], &str); 3] = [
-        (&[], "release: env=dev sha=-"),
+    let cases = [
+        (vec![], "dev", ""),
+        (vec![("SEARCH_FRONT_ENV", "v0.1.8")], "v0.1.8", ""),
         (
-            &[("SEARCH_FRONT_ENV", "v0.1.8")],
-            "release: env=v0.1.8 sha=-",
-        ),
-        (
-            &[
+            vec![
                 ("SEARCH_FRONT_ENV", "main"),
                 ("SEARCH_FRONT_SHA", "0123456789abcdef"),
             ],
-            "release: env=main sha=0123456",
+            "main",
+            "0123456",
         ),
     ];
-    for (env, line) in cases {
+    for (env, version, commit) in cases {
         let port = free_port();
-        let service = start(port, env);
-        let (status, _) = get(port, "/?q=mindfulness");
-        assert_eq!(status, 200, "{env:?} answers");
+        let service = start(port, &env);
+        assert_eq!(get(port, "/?q=mindfulness").0, 200);
         let ended = finish(service);
-        assert_eq!(ended.stdout.matches(line).count(), 1, "{}", ended.stdout);
+        let started = event(&ended.stdout, "service.started");
+        assert_eq!(started["service.version"], version);
+        assert_eq!(started["service.commit"], commit);
     }
 }
 
@@ -258,22 +257,19 @@ fn the_real_boot_logs_its_source_once_and_no_line_holds_the_token() {
     let (status, page) = get(port, "/?q=secret_query_words");
     assert_eq!(status, 502, "a refused token is the failed state");
     let ended = finish(service);
+    assert_eq!(ended.stderr, "");
     assert_eq!(
-        ended.stdout.matches("search: real").count(),
-        1,
-        "{}",
-        ended.stdout
+        event(&ended.stdout, "service.started")["source.mock"],
+        false
     );
     let sent = seen.lock().expect("requests lock").join("\n");
     assert!(
         sent.contains(&format!("Bearer {CANARY}")),
         "the API got it: {sent}"
     );
-    assert!(
-        ended.stderr.contains("401"),
-        "the failure is logged: {}",
-        ended.stderr
-    );
+    let failed = event(&ended.stdout, "api.failed");
+    assert_eq!(failed["error.type"], "authentication");
+    assert_eq!(failed["http.response.status_code"], 401);
     for (what, text) in [
         ("stdout", &ended.stdout),
         ("stderr", &ended.stderr),
@@ -282,7 +278,7 @@ fn the_real_boot_logs_its_source_once_and_no_line_holds_the_token() {
         assert!(!text.contains(CANARY), "token in {what}: {text}");
         assert!(!text.contains(API_MESSAGE), "api message in {what}: {text}");
     }
-    assert!(!ended.stderr.contains("secret_query_words"), "query logged");
+    assert!(!ended.stdout.contains("secret_query_words"), "query logged");
     assert!(
         !ended.success,
         "the service was killed, not ended by itself"
@@ -297,17 +293,17 @@ fn real_env(url: &str) -> Vec<(&str, &str)> {
     vec![("SEARCH_API_URL", url), ("SEARCH_API_TOKEN", CANARY)]
 }
 
-/// Runs a build that must refuse to start: stderr names `named`, nothing
+/// Runs a build that must refuse to start: JSON names `named`, nothing
 /// is listening, no canary is printed.
 fn assert_refuses(env: &[(&str, &str)], named: &str) {
     let (out, ended_by_itself) = run_to_exit(command(free_port(), env));
     assert!(ended_by_itself, "{env:?} must stop at boot, not listen");
     assert!(!out.status.success(), "{env:?} must exit non-zero");
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains(named), "stderr names {named}: {stderr}");
-    let everything = format!("{stderr}{}", String::from_utf8_lossy(&out.stdout));
+    assert_eq!(out.stderr, b"");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(event(&stdout, "service.failed")["stage"], named);
     for canary in [CANARY, ORIGIN_CANARY] {
-        assert!(!everything.contains(canary), "leaked: {everything}");
+        assert!(!stdout.contains(canary), "leaked: {stdout}");
     }
 }
 
@@ -351,10 +347,12 @@ fn a_checked_origin_answers_only_the_right_header_and_logs_once() {
     assert_eq!(with, 200, "right header: {page}");
     let ended = finish(service);
     assert_eq!(
-        ended.stdout.matches("origin: checked").count(),
-        1,
-        "{}",
-        ended.stdout
+        event(&ended.stdout, "service.started")["origin.checked"],
+        true
+    );
+    assert_eq!(
+        event(&ended.stdout, "origin.refused")["reason"],
+        "invalid_origin_auth"
     );
     for (what, text) in [("stdout", &ended.stdout), ("stderr", &ended.stderr)] {
         assert!(!text.contains(ORIGIN_CANARY), "origin secret in {what}");
@@ -370,9 +368,45 @@ fn a_local_run_says_the_origin_is_open() {
     assert_eq!(status, 200);
     let ended = finish(service);
     assert_eq!(
-        ended.stdout.matches("origin: open (local)").count(),
-        1,
-        "{}",
-        ended.stdout
+        event(&ended.stdout, "service.started")["origin.checked"],
+        false
     );
+}
+
+/// Parse every emitted line, requiring exactly one matching lifecycle event.
+fn event(stdout: &str, name: &str) -> serde_json::Value {
+    let logs: Vec<serde_json::Value> = stdout
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("JSON log"))
+        .filter(|log: &serde_json::Value| log["event.name"] == name)
+        .collect();
+    assert_eq!(logs.len(), 1, "one {name}: {stdout}");
+    logs.into_iter().next().unwrap()
+}
+
+/// Cloud Run SIGTERM is a clean stop with its own lifecycle event.
+#[cfg(unix)]
+#[test]
+fn termination_emits_a_clean_stop() {
+    let mut service = start(free_port(), &[]);
+    let child = service.0.as_mut().unwrap();
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &child.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        assert!(
+            Instant::now() < deadline,
+            "SIGTERM did not stop the service"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let ended = finish(service);
+    assert!(ended.success);
+    assert_eq!(ended.stderr, "");
+    assert_eq!(event(&ended.stdout, "service.stopped")["severity"], "INFO");
 }
