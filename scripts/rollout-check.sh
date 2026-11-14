@@ -28,8 +28,8 @@
 # scripts/token-pattern — in the bodies and headers of / and the search),
 # `guard` (without the header, or with a wrong one: 403), `refused`, and,
 # through the Worker only (Chrome cannot add the origin header), `hydrate`:
-# headless Chrome loads /, /?q=satipatthana and /privacy (ui-lib 063: the
-# page hydrates past the nodes Cloudflare injects); a page passes when
+# headless Chrome loads /, /?q=satipatthana and an unknown path, the not-found
+# page (ui-lib 063: the page hydrates past the nodes Cloudflare injects); a page passes when
 # Chrome's console (stderr) has no `runtime.panic`, `panicked at` or `RuntimeError`, and its
 # dumped DOM has `<html data-hydrated>` (set by palicanon_ui_lib::hydrate).
 # Chrome is $CHROME, else google-chrome, google-chrome-stable, chromium,
@@ -372,7 +372,7 @@ hydrate() {
 }
 
 n=0
-for path in / '/?q=satipatthana' /privacy; do
+for path in / '/?q=satipatthana' /no-such-page; do
   n=$((n + 1))
   hydrate "$path" "$n"
 done

@@ -10,6 +10,7 @@ use palicanon_ui_lib::{Language, language_signal};
 
 use crate::catalogue::strings;
 use crate::components::filters::mode_label;
+use crate::components::no_email::no_email_run;
 use crate::highlight::highlight;
 use crate::search::{HitDto, SearchResponse, SnippetKind};
 
@@ -133,9 +134,9 @@ fn snippet_view(hit: &HitDto, query: &str) -> AnyView {
         .into_iter()
         .map(|segment| {
             if segment.matched {
-                view! { <mark>{segment.text}</mark> }.into_any()
+                view! { <mark>{no_email_run(segment.text)}</mark> }.into_any()
             } else {
-                view! { {segment.text} }.into_any()
+                no_email_run(segment.text)
             }
         })
         .collect_view();
@@ -200,7 +201,7 @@ fn NoResultState(query: String) -> impl IntoView {
     view! {
         <div class="mt-12 max-w-[60ch] space-y-2">
             <p class="font-serif text-xl text-heading">
-                {move || td_string!(t.locale(), no_result_title)} " \u{201c}"{query.clone()}
+                {move || td_string!(t.locale(), no_result_title)} " \u{201c}"{no_email_run(query)}
                 "\u{201d}."
             </p>
             <p class="leading-6 text-muted">{move || td_string!(t.locale(), no_result_hint)}</p>
@@ -257,6 +258,85 @@ mod tests {
         assert!(html.contains("No passage matches"), "{html}");
         assert!(html.contains("qqzzqq") && html.contains("”.</p>"), "{html}");
         assert!(!html.contains("<ol"), "{html}");
+    }
+
+    /// The text runs of `html`: what lies between two tags (comments
+    /// included), the unit Cloudflare's email obfuscation rewrites.
+    fn text_runs(html: &str) -> Vec<String> {
+        let mut runs = Vec::new();
+        let mut run = String::new();
+        let mut in_tag = false;
+        for c in html.chars() {
+            match c {
+                '<' => {
+                    in_tag = true;
+                    runs.push(std::mem::take(&mut run));
+                }
+                '>' if in_tag => in_tag = false,
+                _ if !in_tag => run.push(c),
+                _ => {}
+            }
+        }
+        runs.push(run);
+        runs.retain(|r| !r.is_empty());
+        runs
+    }
+
+    /// `[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}` found in `text`.
+    fn has_email_shape(text: &str) -> bool {
+        let chars: Vec<char> = text.chars().collect();
+        chars.iter().enumerate().any(|(at, &c)| {
+            let local_ok = at > 0
+                && (chars[at - 1].is_ascii_alphanumeric() || "._%+-".contains(chars[at - 1]));
+            let domain: Vec<char> = chars[at + 1..]
+                .iter()
+                .copied()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '.' || *c == '-')
+                .collect();
+            let dot_ok = (1..domain.len().saturating_sub(2)).any(|i| {
+                domain[i] == '.'
+                    && domain[i + 1].is_ascii_alphabetic()
+                    && domain[i + 2].is_ascii_alphabetic()
+            });
+            c == '@' && local_ok && dot_ok
+        })
+    }
+
+    fn no_hits_for(query: &str) -> String {
+        render(SearchResponse {
+            query: query.to_owned(),
+            mode: crate::search::Mode::Both,
+            hits: Vec::new(),
+            fell_back: false,
+        })
+    }
+
+    /// Cloudflare's Email Address Obfuscation rewrites any email-shaped
+    /// text run of the HTML body into an `<a>`, which breaks hydration: the
+    /// echoed zero-hit query must never be one run holding an address, yet
+    /// read the same.
+    #[test]
+    fn an_email_shaped_query_is_never_one_text_run_but_reads_the_same() {
+        let html = no_hits_for("foo@bar.com");
+        assert!(has_email_shape("foo@bar.com"), "the matcher itself");
+        for run in text_runs(&html) {
+            assert!(!has_email_shape(&run), "email-shaped run {run:?}: {html}");
+        }
+        let visible: String = text_runs(&html).into_iter().filter(|r| r != "!").collect();
+        assert!(
+            visible.contains("\u{201c}foo@bar.com\u{201d}."),
+            "{visible}"
+        );
+    }
+
+    #[test]
+    fn a_query_without_an_at_sign_renders_as_before() {
+        let html = no_hits_for("qqzzqq");
+        assert!(
+            html.contains("qqzzqq\u{201d}.</p>") || html.contains("qqzzqq<!>"),
+            "{html}"
+        );
+        assert!(!html.contains("<span>@</span>"), "{html}");
     }
 
     #[test]

@@ -137,6 +137,13 @@ pub(crate) mod tests {
     #[derive(Clone, Default)]
     pub(crate) struct Capture(Arc<Mutex<Vec<u8>>>);
 
+    impl Capture {
+        /// Everything written so far.
+        pub(crate) fn text(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+        }
+    }
+
     impl Write for Capture {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
             self.0.lock().unwrap().extend_from_slice(bytes);

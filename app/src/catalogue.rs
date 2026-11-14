@@ -83,12 +83,11 @@ mod tests {
     /// "passage(s)" (its results count) are French as well. "404" is a
     /// numeral, "Anattā — PaliCanon" is a title, and "Anattā" is a Pāli
     /// term in all languages.
-    const SAME_AS_ENGLISH: [(&str, &str); 10] = [
+    const SAME_AS_ENGLISH: [(&str, &str); 9] = [
         ("fr", "collection_label"),
         ("fr", "notfound_eyebrow"),
         ("fr", "notfound_head_title"),
         ("fr", "notfound_title"),
-        ("fr", "pages_nav"),
         ("fr", "results_label"),
         ("fr", "results_one"),
         ("vi", "notfound_eyebrow"),

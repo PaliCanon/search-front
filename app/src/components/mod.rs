@@ -3,6 +3,7 @@
 
 pub mod filters;
 pub mod home;
+pub mod no_email;
 #[cfg(feature = "site")]
 pub mod not_found;
 pub mod result_list;

@@ -1,5 +1,4 @@
-//! The service's shell around `SearchPage` and the footer pages (both
-//! private): the HTML document ([`shell`], server-rendered) and the app
+//! The service's shell around `SearchPage` (private): the HTML document ([`shell`], server-rendered) and the app
 //! root ([`App`], what hydration mounts), `AppShell`'s rail with this
 //! service's one Search entry, the footer (handed to `SiteFooter`) carrying
 //! the release badge of the deploy (`crate::release`), the theme and
@@ -10,9 +9,8 @@ use leptos_i18n::td_string;
 #[cfg(feature = "ssr")]
 use leptos_meta::{HashedStylesheet, MetaTags};
 use leptos_meta::{Title, provide_meta_context};
-use leptos_router::components::{Route, Router, Routes};
+use leptos_router::components::{Router, Routes};
 use leptos_router::hooks::use_location;
-use leptos_router::path;
 use palicanon_ui_lib::{AppShell, IconName, NavEntry, NavList, NavSection, provide_language};
 #[cfg(feature = "ssr")]
 use palicanon_ui_lib::{HydrationRoot, language_attribute, theme_attribute};
@@ -21,7 +19,6 @@ use crate::catalogue::strings;
 use crate::components::not_found::NotFoundPage;
 use crate::components::site_footer::SiteFooter;
 use crate::fragment::{SearchProvider, SearchRoutes};
-use crate::pages::{FooterPage, PageKind};
 #[cfg(feature = "ssr")]
 use crate::release::{ENV_META, ReleaseInfo, SHA_META};
 use crate::search::site::SiteBackend;
@@ -127,7 +124,7 @@ fn nav(current: Signal<String>) -> NavList {
 }
 
 /// The shell around [`SearchPage`]: `AppShell`'s rail, theme and
-/// languages, its routes (the search page at `/`, the four footer pages), the footer under each,
+/// languages, its routes (the search page at `/`), the footer under it,
 /// carrying the build badge.
 #[component]
 fn Layout() -> impl IntoView {
@@ -137,22 +134,6 @@ fn Layout() -> impl IntoView {
             <AppShell nav=nav(location.pathname.into()) footer=|| view! { <SiteFooter /> }>
                 <Routes fallback=|| view! { <NotFoundPage /> }>
                     <SearchRoutes />
-                    <Route
-                        path=path!("/acknowledgements")
-                        view=|| view! { <FooterPage kind=PageKind::Acknowledgements /> }
-                    />
-                    <Route
-                        path=path!("/terms")
-                        view=|| view! { <FooterPage kind=PageKind::Terms /> }
-                    />
-                    <Route
-                        path=path!("/privacy")
-                        view=|| view! { <FooterPage kind=PageKind::Privacy /> }
-                    />
-                    <Route
-                        path=path!("/support")
-                        view=|| view! { <FooterPage kind=PageKind::Support /> }
-                    />
                 </Routes>
             </AppShell>
         </SearchProvider>
@@ -185,33 +166,17 @@ mod tests {
         })
     }
 
-    /// Round 4 (user check): every footer page has its route, renders its
-    /// title in each language, inside the shell, the same footer under it.
+    /// The four pages moved to palicanon.app: this app has no route for
+    /// them any more (the server's 301 answers before it, `crate::moved`);
+    /// reached here, each is the not-found page.
     #[test]
-    fn every_footer_page_route_renders_its_title_in_every_language() {
+    fn the_moved_pages_are_not_routes_of_the_app() {
         use palicanon_ui_lib::Language;
-        for (path, titles) in [
-            (
-                "/acknowledgements",
-                ["Acknowledgements", "Remerciements", "Tri ân"],
-            ),
-            (
-                "/terms",
-                [
-                    "Terms of use",
-                    "Conditions d’utilisation",
-                    "Điều khoản sử dụng",
-                ],
-            ),
-            ("/privacy", ["Privacy", "Confidentialité", "Quyền riêng tư"]),
-            ("/support", ["Support", "Soutenir", "Ủng hộ"]),
-        ] {
-            for (language, title) in Language::ALL.into_iter().zip(titles) {
+        for path in ["/acknowledgements", "/terms", "/privacy", "/support"] {
+            for language in Language::ALL {
                 let html = render_layout(language, path);
-                let h1 = html.find(&format!(">{title}</h1>")).expect(&html);
-                let footer = html.find("<footer").expect(&html);
-                assert!(h1 < footer, "{path} {language:?}: {html}");
-                assert!(!html.contains("Not found."), "{html}");
+                assert!(html.contains("Anattā"), "{path} {language:?}: {html}");
+                assert!(html.contains("404"), "{path} {language:?}: {html}");
             }
         }
     }
@@ -390,7 +355,7 @@ mod tests {
     fn the_shell_body_is_the_hydration_root_around_the_app() {
         let options = LeptosOptions::builder().output_name("search-front").build();
         let html = Owner::new().with(|| {
-            provide_context(RequestUrl::new("/privacy"));
+            provide_context(RequestUrl::new("/nimportequoi"));
             shell(options).to_html()
         });
         let body = html.find("<body>").expect(&html) + "<body>".len();
@@ -404,7 +369,7 @@ mod tests {
             end,
             "the root closes the body: {html}"
         );
-        let page = html.find(">Privacy</h1>").expect(&html);
+        let page = html.find(">Anattā</h1>").expect(&html);
         let footer = html.find("<footer").expect(&html);
         assert!(body < page && footer < end, "the app is inside: {html}");
     }

@@ -79,7 +79,7 @@ web-sys = { version = "0.3", features = [
 # Built with exactly one of the three modes below, never two (no
 # `--all-features`; ci.yml has one clippy entry per mode).
 #
-# `site` is private: the site's own code (its shell, the footer pages, the
+# `site` is private: the site's own code (its shell, the footer, the
 # server function and the backend that calls it). `ssr` and `hydrate` imply
 # it; `csr` never does, so the PaliCanon app's build holds no endpoint, no
 # API client and no token (tests/cfg_gates.rs).
