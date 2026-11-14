@@ -26,11 +26,11 @@ mod components;
 pub mod fragment;
 mod highlight;
 mod links;
+#[cfg(feature = "site")]
+mod moved;
 #[cfg(feature = "ssr")]
 pub mod origin;
 pub(crate) mod page;
-#[cfg(feature = "site")]
-mod pages;
 pub mod release;
 #[cfg(feature = "ssr")]
 pub mod router;

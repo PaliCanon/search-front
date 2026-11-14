@@ -36,7 +36,14 @@ pub const BODY_LIMIT: usize = 8 * 1024;
 pub fn router(options: LeptosOptions, source: Arc<Source>, origin: Origin) -> axum::Router {
     let routes = generate_route_list(App);
     let context = move || provide_context(Arc::clone(&source));
+    // The probe and the moved pages come first: no page is rendered for
+    // them, no source is asked.
     axum::Router::new()
+        .route(
+            crate::telemetry::server::HEALTH_ROUTE,
+            axum::routing::get(healthz),
+        )
+        .merge(crate::moved::routes())
         .leptos_routes_with_context(&options, routes, context.clone(), {
             let options = options.clone();
             move || shell(options.clone())
@@ -49,6 +56,18 @@ pub fn router(options: LeptosOptions, source: Arc<Source>, origin: Origin) -> ax
             Arc::new(origin),
             guard,
         ))
+}
+
+/// The liveness probe: a plain `ok`, never cached. Behind the origin guard
+/// like every route, and not logged (`crate::telemetry::server::request`).
+async fn healthz() -> impl axum::response::IntoResponse {
+    (
+        [
+            (axum::http::header::CONTENT_TYPE, "text/plain"),
+            (axum::http::header::CACHE_CONTROL, "no-store"),
+        ],
+        "ok",
+    )
 }
 
 #[cfg(test)]

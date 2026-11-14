@@ -13,6 +13,24 @@ configured source on the server — the browser holds neither the mock nor
 the token. Without the two variables below the service runs on the in-repo
 mock (`app/src/search/mock.rs`), a few fixed hits.
 
+## The probe and the moved pages
+
+`GET /healthz` (and `HEAD`) answers `200`, `text/plain`, `ok`, with
+`Cache-Control: no-store`, from an axum route before the Leptos ones: no page
+is rendered, no source is asked. It sits behind the origin guard like every
+route and is the one request that is not logged (a probe every few seconds is
+no traffic).
+
+Acknowledgements, Terms, Privacy and Support are pages of palicanon.app, not
+of this site (`app/src/moved.rs`): the footer links to them in the current
+language (`https://palicanon.app/privacy/`, `/fr/privacy/`, `/vi/privacy/`),
+and `GET`/`HEAD` on `/acknowledgements`, `/terms`, `/privacy`, `/support`
+(with or without a trailing slash) answer a `301` to the same page in the
+visitor's language (ui-lib's `resolve_language`: cookie `pc_lang`, then
+`Accept-Language`, then English), the query string dropped, with
+`Cache-Control: no-cache` and `Vary: Cookie, Accept-Language`. Any other path
+is the 404 page.
+
 ## Inside the PaliCanon app (task 021)
 
 The PaliCanon app (Tauri, client side, offline) mounts Search under `/search`

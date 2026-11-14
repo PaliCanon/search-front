@@ -592,3 +592,190 @@ async fn an_open_origin_checks_nothing() {
     let page = get(addr, "/").await;
     assert_eq!(page.status, Some(200), "{}", page.body);
 }
+
+/// `method path` carrying `headers` (name, value).
+async fn call(addr: SocketAddr, method: &str, path: &str, headers: &[(&str, &str)]) -> Http {
+    let extra = header_lines(headers);
+    let request = format!("{method} {path} HTTP/1.0\r\nHost: localhost\r\n{extra}\r\n");
+    send(addr, request.into_bytes()).await
+}
+
+/// The probe: a plain `ok`, never cached, never rendered, GET and HEAD.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn healthz_answers_ok_as_plain_text_and_is_never_cached() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    for method in ["GET", "HEAD"] {
+        let probe = call(addr, method, "/healthz", &[]).await;
+        assert_eq!(probe.status, Some(200), "{method}: {}", probe.body);
+        assert_eq!(probe.header("content-type"), Some("text/plain"), "{method}");
+        assert_eq!(probe.header("cache-control"), Some("no-store"), "{method}");
+        let body = if method == "GET" { "ok" } else { "" };
+        assert_eq!(probe.body, body, "{method}");
+    }
+}
+
+/// `/healthz` is behind the guard like every route: refused without the
+/// secret, `ok` with it, and with an open origin it needs nothing.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn healthz_is_behind_the_origin_guard() {
+    let _one = exclusive();
+    let open = mock_server().await;
+    assert_eq!(get(open, "/healthz").await.body, "ok", "open origin");
+    let guarded = guarded_mock().await;
+    assert_refused(&get(guarded, "/healthz").await, "healthz without header");
+    let probe = get_with(guarded, "/healthz", &[(ORIGIN_HEADER, SECRET)]).await;
+    assert_eq!((probe.status, probe.body.as_str()), (Some(200), "ok"));
+}
+
+/// A probe every few seconds is no traffic: no log line for `/healthz`,
+/// while a real request (the control, here a moved page) logs its one line.
+#[tokio::test(flavor = "current_thread")]
+async fn healthz_is_not_logged_but_a_moved_page_is() {
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::prelude::*;
+
+    let options = LeptosOptions::builder().output_name("search-front").build();
+    let app = router(options, Arc::new(Source::Mock(MockSource)), Origin::Open);
+    let output = crate::telemetry::tests::Capture::default();
+    let subscriber = || {
+        let writer = output.clone();
+        tracing_subscriber::registry().with(crate::telemetry::server::layer(move || writer.clone()))
+    };
+    let mut seen = Vec::new();
+    for path in ["/healthz", "/privacy"] {
+        let request = Request::get(path).body(Body::empty()).expect("a request");
+        let status = app
+            .clone()
+            .oneshot(request)
+            .with_subscriber(subscriber())
+            .await
+            .expect("an answer")
+            .status();
+        seen.push((path, status.as_u16(), output.text()));
+    }
+    assert_eq!(seen[0].1, 200, "{seen:?}");
+    assert_eq!(seen[0].2, "", "healthz logged: {seen:?}");
+    assert_eq!(seen[1].1, 301, "{seen:?}");
+    assert!(
+        seen[1].2.contains(r#""http.route":"/privacy""#),
+        "the control logs one line: {seen:?}"
+    );
+}
+
+/// The four moved pages.
+const MOVED: [&str; 4] = ["acknowledgements", "terms", "privacy", "support"];
+
+/// A request that picks `lang` (en, fr, vi) by cookie, by `Accept-Language`
+/// or by nothing, as `(label, headers)`.
+fn language_requests(lang: &str) -> Vec<(&'static str, Vec<(&'static str, String)>)> {
+    match lang {
+        "en" => vec![
+            ("no header", vec![]),
+            (
+                "accept en",
+                vec![("Accept-Language", "en-GB,en;q=0.9".into())],
+            ),
+            (
+                "accept de",
+                vec![("Accept-Language", "de-DE,de;q=0.9".into())],
+            ),
+            ("cookie en", vec![("Cookie", "pc_lang=en".into())]),
+        ],
+        code => vec![
+            (
+                "cookie",
+                vec![("Cookie", format!("a=b; pc_lang={code}; c=d"))],
+            ),
+            (
+                "accept-language",
+                vec![(
+                    "Accept-Language",
+                    format!("{code}-XX,{code};q=0.9,en;q=0.5"),
+                )],
+            ),
+        ],
+    }
+}
+
+/// 4 pages x 3 languages x slash / no slash x GET / HEAD: a 301 to the
+/// page on palicanon.app (en bare, fr and vi under their prefix), with the
+/// slash form as target, no body, and a verdict that depends on the
+/// request's language, so it is never cached for good.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_moved_pages_are_a_301_to_palicanon_app_in_the_language() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    for (lang, prefix) in [("en", ""), ("fr", "/fr"), ("vi", "/vi")] {
+        for (how, headers) in language_requests(lang) {
+            let headers: Vec<(&str, &str)> =
+                headers.iter().map(|(n, v)| (*n, v.as_str())).collect();
+            for page in MOVED {
+                for path in [format!("/{page}"), format!("/{page}/")] {
+                    for method in ["GET", "HEAD"] {
+                        let case = format!("{method} {path} {lang} ({how})");
+                        let answer = call(addr, method, &path, &headers).await;
+                        let want = format!("https://palicanon.app{prefix}/{page}/");
+                        assert_eq!(answer.status, Some(301), "{case}");
+                        assert_eq!(answer.header("location"), Some(want.as_str()), "{case}");
+                        assert_eq!(answer.header("cache-control"), Some("no-cache"), "{case}");
+                        assert_eq!(
+                            answer.header("vary"),
+                            Some("Cookie, Accept-Language"),
+                            "{case}"
+                        );
+                        assert_eq!(answer.body, "", "{case}: no body");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The cookie decides over `Accept-Language`, as on every page of the site;
+/// the query string is not carried to palicanon.app.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_cookie_wins_over_accept_language_and_the_query_is_dropped() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    let both = [("Cookie", "pc_lang=vi"), ("Accept-Language", "fr")];
+    let answer = call(addr, "GET", "/terms", &both).await;
+    assert_eq!(
+        answer.header("location"),
+        Some("https://palicanon.app/vi/terms/")
+    );
+    let answer = call(addr, "GET", "/support/?q=metta&utm_source=x", &[]).await;
+    assert_eq!(answer.status, Some(301), "{}", answer.body);
+    assert_eq!(
+        answer.header("location"),
+        Some("https://palicanon.app/support/")
+    );
+}
+
+/// Only the four paths move: a longer path, a near miss or a page that
+/// never existed here is the Leptos fallback's 404, no redirect.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn other_paths_are_not_moved() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    for path in [
+        "/privacyx",
+        "/xprivacy",
+        "/privacy/x",
+        "/legal",
+        "/terms//",
+        "/Privacy",
+    ] {
+        let answer = get(addr, path).await;
+        assert_eq!(answer.status, Some(404), "{path}");
+        assert_eq!(answer.header("location"), None, "{path}");
+    }
+}

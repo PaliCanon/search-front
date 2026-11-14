@@ -24,13 +24,6 @@ impl Base {
         Base(use_matched().into())
     }
 
-    /// The root: the footer pages' brand link goes to the site's home, wherever
-    /// those pages are (the site only).
-    #[cfg(feature = "site")]
-    pub(crate) fn root() -> Self {
-        Base(Signal::stored(String::new()))
-    }
-
     /// A fixed base, for a component's own test.
     #[cfg(test)]
     pub(crate) fn fixed(path: &str) -> Self {

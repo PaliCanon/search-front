@@ -123,8 +123,28 @@ pub async fn shutdown() {
     let _ = tokio::signal::ctrl_c().await;
 }
 
-/// Emits one summary per admitted request, with a normalized route, never a URL.
+/// The probe's route, the one request that is not logged.
+pub(crate) const HEALTH_ROUTE: &str = "/healthz";
+
+/// Emits one summary per admitted request, with a normalized route, never a
+/// URL; none for the liveness probe, which comes every few seconds, is no
+/// traffic, and would drown the lines that are.
 pub async fn request(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let probe = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .is_some_and(|path| path.as_str() == HEALTH_ROUTE);
+    if probe {
+        return next.run(request).await;
+    }
+    summarised(request, next).await
+}
+
+/// [`request`]'s summary: one line once the response is ready.
+async fn summarised(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {

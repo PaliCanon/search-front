@@ -1,5 +1,5 @@
 //! The Search fragment: what a host mounts to get the search page without
-//! the site's shell, footer or footer pages (task 021). The PaliCanon app
+//! the site's shell or footer (task 021). The PaliCanon app
 //! mounts it under its own `/search`; the site mounts it at the root.
 //!
 //! A host gives it [`SearchProvider`] (its [`SearchBackend`], required) and
@@ -21,8 +21,8 @@
 //! `/search?q=<uid>`.
 //!
 //! What the fragment does not hold: the `AppShell` and its rail, the footer,
-//! the footer pages (Acknowledgements, Terms, Privacy, Support stay the
-//! site's routes), the document `<title>`. What it needs from its host,
+//! the footer pages (Acknowledgements, Terms, Privacy, Support live on
+//! palicanon.app), the document `<title>`. What it needs from its host,
 //! each of them tested:
 //!
 //! - **the one language signal**: the host calls `provide_language` once;
