@@ -1,6 +1,6 @@
 # 037 Legal and info pages move to palicanon.app
 
-status: build
+status: review
 rank: 4 — difficulty 3 (two repositories, three languages of copy, a redirect and a health endpoint), impact 4 (a user-visible address change on the public site; prod hydration bug)
 level: simple · light path
 request: the user, 2026-11-14: « les pages légales/info appartiennent à palicanon.app, pas à search »; https://search.palicanon.app/privacy panics at hydration
@@ -21,7 +21,8 @@ repository: search-front (www: pointer file `.task/017-legal-pages-to-www.md`)
 | SEARCH | healthz, 301, footer, removal | sonnet | done |
 | WWW-CODE | footer, redirects, tests | sonnet | done |
 | CONTENT-en / fr / vi | Markdown pages, support merge | sonnet | done |
-| VERIFY | every remaining route in headless Chrome, curl matrix | sonnet | running |
+| VERIFY | every remaining route in headless Chrome, curl matrix | sonnet | done |
+| EMAIL | zero-hit query echo never an email-shaped text run | sonnet | done |
 
 ## Root cause
 
@@ -34,3 +35,6 @@ repository: search-front (www: pointer file `.task/017-legal-pages-to-www.md`)
 ## Log
 
 - 2026-11-14 Plan: lanes above, test first; no viewer session was open for this task (viewer down), so the `process` thread posts are in this log only.
+- 2026-11-14 Build: www green (prettier, eslint, astro check, build, vitest, dist: exit 0); search-front green (fmt, leptosfmt, clippy ssr/hydrate/csr, test-ssr, doc, workflows) against ui-lib v0.4.5 (the sibling checkout was at v0.4.12, which breaks `--locked`: checked against a v0.4.5 worktree). `boot_process::the_real_boot_logs_its_source_once_and_no_line_holds_the_token` failed in two full local runs, also on a clean origin/main worktree, and passes alone: pre-existing, not touched.
+- 2026-11-14 Verify (debug build, headless Chrome, behind a proxy emulating Cloudflare's email rewrite and direct, en/fr/vi): `/`, `/?q=anattā`, `/?q=foo`, `/?q=sutta`, `/nonexistent-path` ok on all. `/?q=foo@bar.com` (a zero-hit query holding an email) PANICKED behind the proxy at result_list.rs:202 (the echoed query as text): fixed by `no_email_run` (components/no_email.rs: `foo<span>@</span>bar.com`, same visible text), test red first (`email-shaped run "foo@bar.com"`), then ok in en/fr/vi. curl: /privacy /terms /acknowledgements /support, with and without slash, 5 language headers each, 40 of 40 give 301 to https://palicanon.app/[fr/|vi/]<page>/; /healthz 200 `ok`, `Cache-Control: no-store`.
+- No viewer thread existed for this task (viewer down at Plan): the lanes' `process` lines are these log rows.
