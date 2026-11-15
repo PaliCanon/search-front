@@ -27,3 +27,6 @@ Follow-up, 2026-11-15: bounded the results and reading view to 1120 px, centered
 
 ## Latest user correction — original result list
 The user prefers the pre-redesign results interface while retaining the new colors. Restore the original ResultList from `5e2fde1`, remove the selected-result preview and its unused translation keys, and remove the desktop split-view/clamping CSS. The search bar, filters and result list form one centered column at the original 640 px reading width (latest explicit correction: "au milieu"). The centered home and editorial shell remain in place.
+
+## Deployment follow-up — 2026-11-15
+The user subsequently approved integration, local previews and deployment through `lsh-tech`. GitHub browser CI exposed two stale CSR assertions looking for the old `PaliCanon` fragment heading. Both now check the approved `Search the Pāli Canon` heading, matching the existing native render tests. No runtime source changes; the v0.1.16 image remains the validated application snapshot.

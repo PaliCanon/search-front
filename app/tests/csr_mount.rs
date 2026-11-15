@@ -36,7 +36,7 @@ async fn search_runs_under_csr_mount() {
     let backend = fake.clone();
     csr::mount(move || view! { <Host backend=backend shown=ArcRwSignal::new(true) /> });
     until("the card", || find("#q").is_some()).await;
-    assert!(text().contains("PaliCanon"), "{}", text());
+    assert!(text().contains("Search the Pāli Canon"), "{}", text());
     plant_marker();
     let input = find("#q")
         .expect("the field")

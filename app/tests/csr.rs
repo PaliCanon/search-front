@@ -45,7 +45,7 @@ const VERSES: [&str; 4] = [
     "Health is the ultimate blessing;",
 ];
 
-/// The home renders at `/search`: the brand, the card, the verse of the day
+/// The home renders at `/search`: the heading, the card, the verse of the day
 /// from the browser's clock, three examples that stay under `/search`, and
 /// nothing asked of the backend.
 #[wasm_bindgen_test]
@@ -58,7 +58,7 @@ async fn the_home_renders_its_verse_at_search() {
         "{}",
         text()
     );
-    assert!(text().contains("PaliCanon"), "{}", text());
+    assert!(text().contains("Search the Pāli Canon"), "{}", text());
     assert_eq!(count("a[href^='/search?q=']"), 3, "examples");
     assert_eq!(
         count("a[href='/?q=']") + count("a[href='/']"),
