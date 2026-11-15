@@ -779,3 +779,104 @@ async fn other_paths_are_not_moved() {
         assert_eq!(answer.header("location"), None, "{path}");
     }
 }
+
+/// `/robots.txt`: everything allowed, the sitemap named, GET and HEAD,
+/// asked not to be indexed itself (`X-Robots-Tag`).
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn robots_txt_allows_everything_and_names_the_sitemap() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    for method in ["GET", "HEAD"] {
+        let answer = call(addr, method, "/robots.txt", &[]).await;
+        assert_eq!(answer.status, Some(200), "{method}: {}", answer.body);
+        assert_eq!(
+            answer.header("content-type"),
+            Some("text/plain; charset=utf-8"),
+            "{method}"
+        );
+        assert_eq!(answer.header("x-robots-tag"), Some("noindex"), "{method}");
+        if method == "GET" {
+            let lines: Vec<&str> = answer.body.lines().collect();
+            assert!(lines.contains(&"User-agent: *"), "{}", answer.body);
+            assert!(lines.contains(&"Allow: /"), "{}", answer.body);
+            assert!(
+                lines.contains(&"Sitemap: https://search.palicanon.app/sitemap.xml"),
+                "{}",
+                answer.body
+            );
+            assert!(!answer.body.contains("Disallow"), "{}", answer.body);
+        } else {
+            assert_eq!(answer.body, "", "HEAD: no body");
+        }
+    }
+}
+
+/// `/sitemap.xml`: XML, not indexed itself, and only the home page: the
+/// one stable page of the site. The language is negotiated (cookie, then
+/// `Accept-Language`) on that one URL, so its only alternate is
+/// `x-default`; no search with a query, no moved legal page.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn the_sitemap_lists_the_home_page_only() {
+    let _one = exclusive();
+    let addr = mock_server().await;
+    for method in ["GET", "HEAD"] {
+        let answer = call(addr, method, "/sitemap.xml", &[]).await;
+        assert_eq!(answer.status, Some(200), "{method}: {}", answer.body);
+        assert_eq!(
+            answer.header("content-type"),
+            Some("application/xml"),
+            "{method}"
+        );
+        assert_eq!(answer.header("x-robots-tag"), Some("noindex"), "{method}");
+    }
+    let body = get(addr, "/sitemap.xml").await.body;
+    assert!(
+        body.starts_with(r#"<?xml version="1.0" encoding="UTF-8"?>"#),
+        "{body}"
+    );
+    assert!(
+        body.contains(r#"xmlns="http://www.sitemaps.org/schemas/sitemap/0.9""#),
+        "{body}"
+    );
+    assert!(
+        body.contains(r#"xmlns:xhtml="http://www.w3.org/1999/xhtml""#),
+        "{body}"
+    );
+    let locs: Vec<&str> = body
+        .split("<loc>")
+        .skip(1)
+        .filter_map(|rest| rest.split_once("</loc>").map(|(loc, _)| loc))
+        .collect();
+    assert_eq!(locs, ["https://search.palicanon.app/"], "{body}");
+    assert!(
+        body.contains(
+            r#"<xhtml:link rel="alternate" hreflang="x-default" href="https://search.palicanon.app/"/>"#
+        ),
+        "{body}"
+    );
+    let hrefs = body
+        .split("href=\"")
+        .skip(1)
+        .filter_map(|rest| rest.split_once('"').map(|(href, _)| href));
+    for url in locs.iter().copied().chain(hrefs) {
+        assert!(!url.contains(['?', '&']), "a query in {url}");
+    }
+    for page in MOVED {
+        assert!(!body.contains(page), "{page} in {body}");
+    }
+}
+
+/// Both files are behind the origin guard like every route.
+#[tokio::test]
+#[allow(clippy::await_holding_lock)]
+async fn robots_and_sitemap_are_behind_the_origin_guard() {
+    let _one = exclusive();
+    let guarded = guarded_mock().await;
+    for path in ["/robots.txt", "/sitemap.xml"] {
+        assert_refused(&get(guarded, path).await, path);
+        let answer = get_with(guarded, path, &[(ORIGIN_HEADER, SECRET)]).await;
+        assert_eq!(answer.status, Some(200), "{path}");
+    }
+}

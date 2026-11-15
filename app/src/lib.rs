@@ -35,6 +35,8 @@ pub mod release;
 #[cfg(feature = "ssr")]
 pub mod router;
 pub mod search;
+#[cfg(feature = "ssr")]
+mod seo;
 pub mod telemetry;
 pub mod ui;
 
