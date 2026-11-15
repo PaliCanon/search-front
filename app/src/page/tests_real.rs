@@ -217,7 +217,10 @@ async fn the_home_makes_zero_calls() {
             },
         )
         .await;
-        assert!(html.contains(">PaliCanon</h1>"), "{path}: {html}");
+        assert!(
+            html.contains(">Search the Pāli Canon</h1>"),
+            "{path}: {html}"
+        );
     }
     assert_eq!(api.calls(), 0, "the home never searches");
 }

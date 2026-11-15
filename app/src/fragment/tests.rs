@@ -156,7 +156,10 @@ async fn the_home_renders_at_search_and_when_the_query_is_blank() {
         let fake = one_hit();
         let html = in_the_app(url, fake.clone()).await;
         assert!(!html.contains("not found"), "{url}: {html}");
-        assert!(html.contains(">PaliCanon</h1>"), "{url}: {html}");
+        assert!(
+            html.contains(">Search the Pāli Canon</h1>"),
+            "{url}: {html}"
+        );
         assert!(html.contains(r#"role="search""#), "{url}: {html}");
         assert_eq!(fake.asked(), vec![], "{url}");
     }
@@ -179,7 +182,7 @@ async fn a_zero_hit_answer_at_search_is_the_no_result_state() {
     let html = in_the_app("/search?q=zzz", fake.clone()).await;
     assert!(html.contains("No passage matches"), "{html}");
     assert!(!html.contains(r#"role="alert""#), "{html}");
-    assert!(!html.contains(">PaliCanon</h1>"), "{html}");
+    assert!(!html.contains(">Search the Pāli Canon</h1>"), "{html}");
     assert_eq!(fake.asked().len(), 1);
 }
 

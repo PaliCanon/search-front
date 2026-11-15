@@ -81,10 +81,11 @@ pub(crate) const VERSES: [Verse; 4] = [
 /// The lotus and the name, centred above the card (the home).
 #[component]
 pub fn Brand() -> impl IntoView {
+    let t = strings();
     view! {
         <h1 class="mb-6 flex items-center justify-center gap-3 font-serif text-[1.75rem] font-semibold text-heading select-none">
             <img src="/lotus.png" alt="" width="30" height="30" />
-            "PaliCanon"
+            {move || td_string!(t.locale(), empty_title)}
         </h1>
     }
 }

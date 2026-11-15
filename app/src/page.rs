@@ -179,7 +179,7 @@ fn home_view(params: Memo<ParamsMap>, meaning: Signal<bool>, base: Base) -> impl
         let collection = Collection::parse(params.get("c").unwrap_or_default().as_str());
         let passage = params.get("passage").unwrap_or_default();
         view! {
-            <div class="flex flex-col">
+            <main class="search-home flex flex-col">
                 <div class="flex flex-col items-center px-6 pt-[max(4rem,20vh)] pb-12">
                     <div class="w-full max-w-[42rem]">
                         <Brand />
@@ -192,7 +192,7 @@ fn home_view(params: Memo<ParamsMap>, meaning: Signal<bool>, base: Base) -> impl
                 <section class="px-6 pt-16 pb-24 sm:pt-28">
                     <DailyPassage base=base raw=passage />
                 </section>
-            </div>
+            </main>
         }
     }
 }
@@ -208,42 +208,43 @@ fn results_view(
     base: Base,
 ) -> AnyView {
     view! {
-        {move || {
-            let q = key.get().q;
-            view! {
-                <ResultsHeader base=base>
-                    <ResultsSearchBar value=q />
-                </ResultsHeader>
-            }
-        }}
-        <main class=MAIN>
-            <div class="min-w-0 sm:col-start-2">
-                {move || {
-                    let key = key.get();
-                    let mode = meaning
-                        .get()
-                        .then(|| {
-                            view! {
-                                <ModeSelect
-                                    value=key.mode
+        <div class="search-workspace">
+            {move || {
+                let q = key.get().q;
+                view! {
+                    <ResultsHeader base=base>
+                        <ResultsSearchBar value=q />
+                    </ResultsHeader>
+                }
+            }} <main class=MAIN>
+                <div class="min-w-0 sm:col-start-2">
+                    {move || {
+                        let key = key.get();
+                        let mode = meaning
+                            .get()
+                            .then(|| {
+                                view! {
+                                    <ModeSelect
+                                        value=key.mode
+                                        form=SEARCH_FORM_ID
+                                        submit_on_change=true
+                                    />
+                                }
+                            });
+                        view! {
+                            <div class="flex flex-wrap items-center gap-2 pt-3">
+                                <CollectionSelect
+                                    value=key.collection
                                     form=SEARCH_FORM_ID
                                     submit_on_change=true
                                 />
-                            }
-                        });
-                    view! {
-                        <div class="flex flex-wrap items-center gap-2 pt-3">
-                            <CollectionSelect
-                                value=key.collection
-                                form=SEARCH_FORM_ID
-                                submit_on_change=true
-                            />
-                            {mode}
-                        </div>
-                    }
-                }} <ResultsArea key=key outcome=outcome base=base />
-            </div>
-        </main>
+                                {mode}
+                            </div>
+                        }
+                    }} <ResultsArea key=key outcome=outcome base=base />
+                </div>
+            </main>
+        </div>
     }
     .into_any()
 }
@@ -491,7 +492,7 @@ mod tests {
             "{html}"
         );
         assert!(html.contains(r#"src="/lotus.png""#), "{html}");
-        assert!(html.contains(">PaliCanon</h1>"), "{html}");
+        assert!(html.contains(">Search the Pāli Canon</h1>"), "{html}");
     }
 
     /// Round 3, revised by the user: the home stays in the middle of the
@@ -500,7 +501,7 @@ mod tests {
     async fn the_home_stays_centred_with_the_brand_above_the_card() {
         let html = render_at("/").await;
         assert!(html.contains("pt-[max(4rem,20vh)]"), "{html}");
-        let brand = html.find(">PaliCanon</h1>").expect(&html);
+        let brand = html.find(">Search the Pāli Canon</h1>").expect(&html);
         let card = html.find(r#"role="search""#).expect(&html);
         assert!(brand < card, "{html}");
         assert!(!html.contains(r#"<a href="/""#), "{html}");

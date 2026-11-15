@@ -11,7 +11,9 @@ use leptos_meta::{HashedStylesheet, MetaTags};
 use leptos_meta::{Title, provide_meta_context};
 use leptos_router::components::{Router, Routes};
 use leptos_router::hooks::use_location;
-use palicanon_ui_lib::{AppShell, IconName, NavEntry, NavList, NavSection, provide_language};
+use palicanon_ui_lib::{
+    AppShell, IconName, NavEntry, NavList, NavSection, ShellAppearance, provide_language,
+};
 #[cfg(feature = "ssr")]
 use palicanon_ui_lib::{HydrationRoot, language_attribute, theme_attribute};
 
@@ -105,16 +107,14 @@ fn nav(current: Signal<String>) -> NavList {
                     icon: IconName::Search,
                     href: "/",
                 },
-                // `IconName::Grid` and `IconName::Motion` stand in until ui-lib
-                // has Learn and Map icons, as in learn-pali and vizualisation.
                 NavEntry {
                     label: td_string!(t.locale(), nav_learn),
-                    icon: IconName::Grid,
+                    icon: IconName::BookOpen,
                     href: "https://learn.palicanon.app",
                 },
                 NavEntry {
                     label: td_string!(t.locale(), nav_map),
-                    icon: IconName::Motion,
+                    icon: IconName::Network,
                     href: "https://map.palicanon.app",
                 },
             ],
@@ -131,7 +131,14 @@ fn Layout() -> impl IntoView {
     let location = use_location();
     view! {
         <SearchProvider backend=SiteBackend::new()>
-            <AppShell nav=nav(location.pathname.into()) footer=|| view! { <SiteFooter /> }>
+            <AppShell
+                appearance=ShellAppearance::Editorial
+                product_label=Some(
+                    Signal::derive(move || td_string!(strings().locale(), nav_search).to_owned()),
+                )
+                nav=nav(location.pathname.into())
+                footer=|| view! { <SiteFooter /> }
+            >
                 <Routes fallback=|| view! { <NotFoundPage /> }>
                     <SearchRoutes />
                 </Routes>
