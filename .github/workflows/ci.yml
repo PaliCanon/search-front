@@ -9,7 +9,7 @@
 # build together.
 #
 # Repository secrets used: APP_ID, APP_PRIVATE_KEY (the GitHub App, Contents:
-# read on ui-lib, api and search-front), CODECOV_TOKEN (optional).
+# read on ui-lib, api and search-front).
 name: CI
 
 on:
@@ -199,14 +199,7 @@ jobs:
         with:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
-      - run: cargo llvm-cov -p search_front --features ssr --lcov --output-path lcov.info
-      - uses: codecov/codecov-action@v7
-        with:
-          files: lcov.info
-          working-directory: search-front
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - run: cargo llvm-cov -p search_front --features ssr
 
   bundle:
     # The browser bundle holds no token and no API client: `cargo leptos
