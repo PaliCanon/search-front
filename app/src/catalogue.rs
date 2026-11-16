@@ -79,12 +79,14 @@ mod tests {
     }
 
     /// Keys whose French or Vietnamese value is, rightly, the English
-    /// word: "Collection", "Site" (today's site's `footer.nav`) and
-    /// "passage(s)" (its results count) are French as well. "404" is a
+    /// word: "Collection", "Site" (today's site's `footer.nav`),
+    /// "passage(s)" (its results count) and "Audio" (the rail's entry) are
+    /// French as well. "404" is a
     /// numeral, "Anattā — PaliCanon" is a title, and "Anattā" is a Pāli
     /// term in all languages.
-    const SAME_AS_ENGLISH: [(&str, &str); 9] = [
+    const SAME_AS_ENGLISH: [(&str, &str); 10] = [
         ("fr", "collection_label"),
+        ("fr", "nav_audio"),
         ("fr", "notfound_eyebrow"),
         ("fr", "notfound_head_title"),
         ("fr", "notfound_title"),

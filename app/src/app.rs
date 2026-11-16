@@ -94,8 +94,9 @@ pub fn App() -> impl IntoView {
 }
 
 /// The rail's entries: the services, Search (this one, the current entry on
-/// `/`), Learn, then Map. The same three, in the same order and with the same
-/// hrefs, as learn-pali's and vizualisation's rails.
+/// `/`), Learn, Map, then Audio. The same four, in the same order and with
+/// the same hrefs, as learn-pali's, vizualisation's and the audio site's
+/// rails.
 fn nav(current: Signal<String>) -> NavList {
     let t = strings();
     let sections = Signal::derive(move || {
@@ -116,6 +117,13 @@ fn nav(current: Signal<String>) -> NavList {
                     label: td_string!(t.locale(), nav_map),
                     icon: IconName::Network,
                     href: "https://map.palicanon.app",
+                },
+                NavEntry {
+                    label: td_string!(t.locale(), nav_audio),
+                    // IconName::Motion (three lines of different lengths, as a
+                    // level meter) stands in until ui-lib has a headphones icon.
+                    icon: IconName::Motion,
+                    href: "https://audio.palicanon.app",
                 },
             ],
         }]
@@ -188,19 +196,19 @@ mod tests {
         }
     }
 
-    /// The rail lists the three services, Search, Learn, Map, in that order,
-    /// labelled in each language; only Search (`/`) is current on the home,
-    /// the other two are plain external links.
+    /// The rail lists the four services, Search, Learn, Map, Audio, in that
+    /// order, labelled in each language; only Search (`/`) is current on the
+    /// home, the other three are plain external links.
     #[tokio::test]
-    async fn the_rail_lists_search_then_learn_then_map() {
+    async fn the_rail_lists_search_then_learn_then_map_then_audio() {
         use palicanon_ui_lib::Language;
         // The home spawns the search's resources: an executor, whichever
         // test runs first (harness::render_view does the same).
         let _ = any_spawner::Executor::init_tokio();
         for (language, labels) in [
-            (Language::En, ["Search", "Learn", "Map"]),
-            (Language::Fr, ["Recherche", "Apprendre", "Carte"]),
-            (Language::Vi, ["Tìm kiếm", "Học", "Bản đồ"]),
+            (Language::En, ["Search", "Learn", "Map", "Audio"]),
+            (Language::Fr, ["Recherche", "Apprendre", "Carte", "Audio"]),
+            (Language::Vi, ["Tìm kiếm", "Học", "Bản đồ", "Âm thanh"]),
         ] {
             let html = render_layout(language, "/");
             let at = |href: &str| {
@@ -210,14 +218,22 @@ mod tests {
             let search = at("/");
             let learn = at("https://learn.palicanon.app");
             let map = at("https://map.palicanon.app");
-            assert!(search < learn && learn < map, "{language:?}: {html}");
+            let audio = at("https://audio.palicanon.app");
+            assert!(
+                search < learn && learn < map && map < audio,
+                "{language:?}: {html}"
+            );
             for label in labels {
                 assert!(
                     html.contains(&format!(">{label}</span>")),
                     "{label}: {html}"
                 );
             }
-            for href in ["https://learn.palicanon.app", "https://map.palicanon.app"] {
+            for href in [
+                "https://learn.palicanon.app",
+                "https://map.palicanon.app",
+                "https://audio.palicanon.app",
+            ] {
                 let open = html[..at(href)].rfind("<a").expect(&html);
                 let close = open + html[open..].find('>').expect(&html);
                 assert!(
